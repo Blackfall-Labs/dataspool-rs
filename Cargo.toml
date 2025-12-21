@@ -1,0 +1,33 @@
+[package]
+name = "dataspool"
+version = "0.1.0"
+edition = "2021"
+authors = ["Magnus Trent <magnus@blackfall.dev>"]
+license = "MIT"
+repository = "https://github.com/Blackfall-Labs/dataspool-rs"
+description = "Efficient data bundling system with indexed .spool files and SQLite vector database"
+keywords = ["spool", "bundling", "database", "indexing", "vectors"]
+categories = ["database-implementations", "filesystem", "compression"]
+readme = "README.md"
+documentation = "https://docs.rs/dataspool"
+
+[dependencies]
+# Compression (for reading compressed items in spool)
+bytepunch = { path = "../bytepunch-rs" }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Database
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Error handling
+thiserror = "1.0"
+
+# Async (optional, for async APIs)
+tokio = { version = "1.40", features = ["full"], optional = true }
+
+[features]
+default = []
+async = ["tokio"]
