@@ -228,22 +228,22 @@ let blob1_data = reader.read_entry(0)?; // Direct access, no scan
 
 **Benchmark results** (3,309 items, Rust stdlib documentation):
 
-| Operation | Time | Notes |
-|-----------|------|-------|
-| Build spool | ~200ms | Writing all items + index |
-| Read single item | <1ms | Direct byte offset seek |
-| Read all items | ~50ms | Sequential read |
-| SQLite insert (1 doc) | ~0.5ms | With embedding |
-| Vector search (10 results) | ~5ms | Cosine similarity + index |
+| Operation                  | Time   | Notes                     |
+| -------------------------- | ------ | ------------------------- |
+| Build spool                | ~200ms | Writing all items + index |
+| Read single item           | <1ms   | Direct byte offset seek   |
+| Read all items             | ~50ms  | Sequential read           |
+| SQLite insert (1 doc)      | ~0.5ms | With embedding            |
+| Vector search (10 results) | ~5ms   | Cosine similarity + index |
 
 ## Comparison to Alternatives
 
-| Approach | Read Speed | Storage Overhead | Random Access |
-|----------|------------|------------------|---------------|
-| Individual files | Slow (3,309 inodes) | High (4KB/file) | Yes |
-| tar archive | Slow (must scan) | Low | No |
-| zip archive | Fast | Medium | Yes |
-| **DataSpool** | **Fast** | **Minimal** | **Yes** |
+| Approach         | Read Speed          | Storage Overhead | Random Access |
+| ---------------- | ------------------- | ---------------- | ------------- |
+| Individual files | Slow (3,309 inodes) | High (4KB/file)  | Yes           |
+| tar archive      | Slow (must scan)    | Low              | No            |
+| zip archive      | Fast                | Medium           | Yes           |
+| **DataSpool**    | **Fast**            | **Minimal**      | **Yes**       |
 
 ### DataSpool Advantages
 

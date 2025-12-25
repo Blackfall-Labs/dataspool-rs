@@ -1,5 +1,5 @@
 [package]
-name = "dataspool"
+name = "dataspool-rs"
 version = "0.1.0"
 edition = "2021"
 authors = ["Magnus Trent <magnus@blackfall.dev>"]
@@ -9,11 +9,12 @@ description = "Efficient data bundling system with indexed .spool files and SQLi
 keywords = ["spool", "bundling", "database", "indexing", "vectors"]
 categories = ["database-implementations", "filesystem", "compression"]
 readme = "README.md"
-documentation = "https://docs.rs/dataspool"
+documentation = "https://docs.rs/dataspool-rs"
+exclude = ["target/**", "Cargo.lock", ".git/**"]
 
 [dependencies]
 # Compression (for reading compressed items in spool)
-bytepunch = { path = "../bytepunch-rs" }
+bytepunch = { version = "0.1.0", package = "bytepunch-rs" }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }

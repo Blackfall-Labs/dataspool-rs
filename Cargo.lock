@@ -21,8 +21,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "812e12b5285cc515a9c72a5c1d3b6d46a19dac5acfef5265968c166106e31dd3"
 
 [[package]]
-name = "bytepunch"
+name = "bytepunch-rs"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2af9a3ab0fc8dfc61177706f17202d53b35bf4597f85685c1e76d99fdd3aa33"
 dependencies = [
  "serde",
  "serde_json",
@@ -52,10 +54,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
-name = "dataspool"
+name = "dataspool-rs"
 version = "0.1.0"
 dependencies = [
- "bytepunch",
+ "bytepunch-rs",
  "rusqlite",
  "serde",
  "serde_json",
