@@ -151,6 +151,64 @@ impl SpoolReader {
         Ok(Self { file, entries })
     }
 
+    /// Open a spool embedded within a larger file at a given byte offset.
+    ///
+    /// Reads the SP01 header starting at `base_offset`, then adjusts all
+    /// internal offsets so that `read_card()` seeks to the correct position
+    /// within the host file. This enables direct access to spool data
+    /// stitched into an Engram archive without temp extraction.
+    pub fn open_embedded<P: AsRef<Path>>(path: P, base_offset: u64) -> Result<Self> {
+        let mut file = File::open(path)?;
+
+        // Seek to spool start within the host file.
+        file.seek(SeekFrom::Start(base_offset))?;
+
+        // Read and verify header.
+        let mut magic = [0u8; 4];
+        file.read_exact(&mut magic)?;
+        if &magic != MAGIC {
+            return Err(DataSpoolError::Decompression(
+                "Invalid spool magic bytes".into(),
+            ));
+        }
+
+        let mut version = [0u8; 1];
+        file.read_exact(&mut version)?;
+        if version[0] != VERSION {
+            return Err(DataSpoolError::InvalidFormat);
+        }
+
+        let mut card_count_bytes = [0u8; 4];
+        file.read_exact(&mut card_count_bytes)?;
+        let card_count = u32::from_le_bytes(card_count_bytes);
+
+        let mut index_offset_bytes = [0u8; 8];
+        file.read_exact(&mut index_offset_bytes)?;
+        let index_offset = u64::from_le_bytes(index_offset_bytes);
+
+        // index_offset is relative to spool start — adjust to host file position.
+        file.seek(SeekFrom::Start(base_offset + index_offset))?;
+        let mut entries = Vec::with_capacity(card_count as usize);
+
+        for _ in 0..card_count {
+            let mut offset_bytes = [0u8; 8];
+            file.read_exact(&mut offset_bytes)?;
+            let offset = u64::from_le_bytes(offset_bytes);
+
+            let mut length_bytes = [0u8; 4];
+            file.read_exact(&mut length_bytes)?;
+            let length = u32::from_le_bytes(length_bytes);
+
+            // Adjust card offset to host file position.
+            entries.push(SpoolEntry {
+                offset: base_offset + offset,
+                length,
+            });
+        }
+
+        Ok(Self { file, entries })
+    }
+
     /// Get number of cards in spool
     pub fn card_count(&self) -> usize {
         self.entries.len()
@@ -260,5 +318,47 @@ mod tests {
         }
 
         fs::remove_file(temp_path).unwrap();
+    }
+
+    #[test]
+    fn test_spool_open_embedded() {
+        // Simulate a spool embedded within a larger file by prepending junk bytes.
+        let temp_spool = "test_embedded_source.spool";
+        let temp_host = "test_embedded_host.bin";
+
+        let card1 = b"BP01\x01\x08code:apicard one data";
+        let card2 = b"BP01\x01\x08code:apicard two longer data here";
+
+        // Build a normal spool.
+        {
+            let mut builder = SpoolBuilder::new(temp_spool).unwrap();
+            builder.add_card(card1).unwrap();
+            builder.add_card(card2).unwrap();
+            builder.finalize().unwrap();
+        }
+
+        // Create a host file: [64 bytes junk][spool data][32 bytes junk]
+        let spool_bytes = fs::read(temp_spool).unwrap();
+        let prefix = vec![0xAA; 64];
+        let suffix = vec![0xBB; 32];
+        let mut host = Vec::new();
+        host.extend_from_slice(&prefix);
+        host.extend_from_slice(&spool_bytes);
+        host.extend_from_slice(&suffix);
+        fs::write(temp_host, &host).unwrap();
+
+        // Open embedded at offset 64.
+        {
+            let mut reader = SpoolReader::open_embedded(temp_host, 64).unwrap();
+            assert_eq!(reader.card_count(), 2);
+
+            let read1 = reader.read_card(0).unwrap();
+            let read2 = reader.read_card(1).unwrap();
+            assert_eq!(&read1, card1);
+            assert_eq!(&read2, card2);
+        }
+
+        fs::remove_file(temp_spool).unwrap();
+        fs::remove_file(temp_host).unwrap();
     }
 }

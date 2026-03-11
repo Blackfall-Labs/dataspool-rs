@@ -56,6 +56,23 @@ for (index, entry) in reader.iter_entries().enumerate() {
 }
 ```
 
+### Reading an Embedded Spool
+
+Spools can be embedded within larger files (e.g., an Engram archive) and read directly without extraction. `open_embedded()` takes a base byte offset and adjusts all internal offsets so that `read_card()` seeks to the correct position within the host file:
+
+```rust
+use dataspool::SpoolReader;
+
+// Open a spool stitched into a larger file at byte offset 4096.
+let mut reader = SpoolReader::open_embedded("archive.eng", 4096)?;
+
+// read_card() transparently seeks within the host file.
+let card = reader.read_card(0)?;
+println!("Card 0: {} bytes", card.len());
+```
+
+This enables consumers like Engram to stitch spool data inline during archive compilation, then serve card reads directly from the archive file — no temp extraction, no filesystem overhead.
+
 ### Persistent Vector Store
 
 ```rust
@@ -132,7 +149,7 @@ for result in results {
 - **Version**: `1` (1 byte) - Format version
 - **Card Count**: Number of entries in spool (u32)
 - **Index Offset**: Byte offset where index starts (u64)
-- **Index**: Array of `[offset: u64, length: u64]` pairs
+- **Index**: Array of `[offset: u64, length: u32]` pairs (12 bytes each)
 
 ## Architecture
 
@@ -146,19 +163,29 @@ for result in results {
 │ SpoolBuilder│────>│  .spool file │
 └─────────────┘     └──────────────┘
                            │
-                           v
-                    ┌──────────────┐
-                    │ SpoolReader  │
-                    └──────┬───────┘
-                           │
-       ┌───────────────────┴───────────────────┐
-       v                                       v
-┌──────────────────┐                  ┌────────────────┐
-│ PersistentVector │                  │  .db (SQLite)  │
-│      Store       │<─────────────────│  - documents   │
-└──────────────────┘                  │  - embeddings  │
-                                      └────────────────┘
+              ┌────────────┼────────────────┐
+              v            v                v
+       ┌────────────┐ ┌──────────┐  ┌──────────────┐
+       │ Standalone │ │ Embedded │  │  .db (SQLite) │
+       │ SpoolReader│ │ in .eng  │  │  - documents  │
+       │  ::open()  │ │::open_   │  │  - embeddings │
+       └────────────┘ │embedded()│  └───────┬───────┘
+                      └──────────┘          │
+                                            v
+                                   ┌──────────────────┐
+                                   │ PersistentVector │
+                                   │      Store       │
+                                   └──────────────────┘
 ```
+
+### Standalone vs. Embedded
+
+| Mode | Constructor | Use Case |
+|------|-------------|----------|
+| **Standalone** | `SpoolReader::open(path)` | Reading `.spool` files directly from disk |
+| **Embedded** | `SpoolReader::open_embedded(path, offset)` | Reading spools stitched into a host file (e.g., Engram archives) |
+
+Both modes share the same `read_card()` / `read_card_at()` API. The embedded constructor adjusts internal byte offsets by the base offset so all seeks target the correct position within the host file.
 
 ## Use Cases
 
