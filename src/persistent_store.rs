@@ -2,8 +2,8 @@
 //!
 //! Stores documents, embeddings, and HNSW index in SQLite for instant loading
 
-use bytepunch::{Decompressor, Dictionary};
 use crate::spool::SpoolReader;
+use bytepunch::{Decompressor, Dictionary};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};

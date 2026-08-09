@@ -25,9 +25,9 @@
 //! ```
 
 pub mod error;
-pub mod spool;
 pub mod persistent_store;
+pub mod spool;
 
 pub use error::{DataSpoolError, Result};
-pub use spool::{SpoolBuilder, SpoolEntry, SpoolReader};
 pub use persistent_store::{DocumentRef, FileSearchResult, PersistentVectorStore};
+pub use spool::{SpoolBuilder, SpoolEntry, SpoolReader};
