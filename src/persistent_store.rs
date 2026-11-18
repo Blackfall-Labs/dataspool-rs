@@ -2,10 +2,8 @@
 //!
 //! Stores documents, embeddings, and HNSW index in SQLite for instant loading
 
-use crate::spool::SpoolReader;
-use bytepunch::{Decompressor, Dictionary};
-use rusqlite::{params, Connection, OptionalExtension};
-use std::path::{Path, PathBuf};
+use rusqlite::{params, Connection};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 // SearchResult moved inline
@@ -101,6 +99,7 @@ impl PersistentVectorStore {
     }
 
     /// Add a document with spool location
+    #[allow(clippy::too_many_arguments)]
     pub fn add_document_with_spool(
         &self,
         id: &str,
@@ -112,9 +111,11 @@ impl PersistentVectorStore {
         embedding: &[f32],
     ) -> rusqlite::Result<()> {
         if embedding.len() != self.dimension {
-            return Err(rusqlite::Error::InvalidParameterName(
-                format!("Expected {} dims, got {}", self.dimension, embedding.len()).into(),
-            ));
+            return Err(rusqlite::Error::InvalidParameterName(format!(
+                "Expected {} dims, got {}",
+                self.dimension,
+                embedding.len()
+            )));
         }
 
         let conn = self.conn.lock().unwrap();
@@ -154,14 +155,11 @@ impl PersistentVectorStore {
         top_k: usize,
     ) -> rusqlite::Result<Vec<FileSearchResult>> {
         if query_embedding.len() != self.dimension {
-            return Err(rusqlite::Error::InvalidParameterName(
-                format!(
-                    "Expected {} dims, got {}",
-                    self.dimension,
-                    query_embedding.len()
-                )
-                .into(),
-            ));
+            return Err(rusqlite::Error::InvalidParameterName(format!(
+                "Expected {} dims, got {}",
+                self.dimension,
+                query_embedding.len()
+            )));
         }
 
         let conn = self.conn.lock().unwrap();

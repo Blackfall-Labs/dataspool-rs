@@ -13,8 +13,6 @@ documentation = "https://docs.rs/dataspool-rs"
 exclude = ["target/**", "Cargo.lock", ".git/**"]
 
 [dependencies]
-# Compression (for reading compressed items in spool)
-bytepunch = { version = "0.1.0", package = "bytepunch-rs", registry = "blackfall" }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
