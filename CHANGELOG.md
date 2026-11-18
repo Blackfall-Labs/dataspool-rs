@@ -1,16 +1,50 @@
 # Changelog
 
+All notable changes to this project are documented here. The format is based on
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
+[Semantic Versioning](https://semver.org/).
+
+## [1.0.0] - 2026-11-19
+
+First stable release of the prototype, published with the repository's full history
+for Blackfall Labs' first anniversary. The on-disk format is unchanged from 0.3.0.
+
+### Added
+- `SPECIFICATION.md`, a complete description of the SP01 spool format and the index
+  database, sufficient to build a compatible implementation.
+- `LICENSE-APACHE`: the crate is now dual licensed under MIT OR Apache-2.0.
+
+### Changed
+- README rewritten so every example matches the real API.
+- Removed the unused `bytepunch-rs` dependency. The crate now builds from crates.io
+  alone.
+
+### Fixed
+- All Clippy warnings.
+
+### Removed
+- `dataspool.md`, an out-of-date copy of the README.
+
+## [0.3.0] - 2026-03-11
+
+### Added
+- `SpoolReader::open_embedded()` to read a spool stored inside a larger file at a
+  byte offset, without extracting it.
+
+## [0.2.0] - 2026-01-08
+
+### Changed
+- Updated to `rusqlite` 0.32.
+
 ## [0.1.0] - 2025-12-21
 
 ### Added
-- Initial release extracted from SAM project
-- SpoolBuilder for creating .spool files
-- SpoolReader for reading from .spool files with byte-offset indexing
-- PersistentVectorStore for SQLite-based metadata + embeddings
-- Support for bundling compressed cards into single file
-- Random access via byte offsets (no scanning required)
+- Initial release, extracted from SAM.
+- `SpoolBuilder` for creating `.spool` files.
+- `SpoolReader` for reading cards by index through the byte-offset index.
+- `PersistentVectorStore` for SQLite-backed metadata and embeddings.
 
-### Notes
-- Extracted from Blackfall Labs SAM project
-- Designed for extensibility (future: image spools, binary spools)
-- Used to bundle 3,309 Rust stdlib cards into 1.2MB .spool + 7.3MB .db
+[1.0.0]: https://github.com/blackfall-labs/dataspool-rs/releases/tag/v1.0.0
+[0.3.0]: https://crates.io/crates/dataspool-rs/0.3.0
+[0.2.0]: https://crates.io/crates/dataspool-rs/0.2.0
+[0.1.0]: https://crates.io/crates/dataspool-rs/0.1.0

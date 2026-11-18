@@ -31,3 +31,8 @@ pub mod spool;
 pub use error::{DataSpoolError, Result};
 pub use persistent_store::{DocumentRef, FileSearchResult, PersistentVectorStore};
 pub use spool::{SpoolBuilder, SpoolEntry, SpoolReader};
+
+// Compile the README examples as doctests so they stay in sync with the API.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
