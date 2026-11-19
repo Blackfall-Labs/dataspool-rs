@@ -2,7 +2,7 @@
 
 **Format:** SP01 (spool file) plus an optional SQLite index database
 **Format version:** 1
-**Library version:** dataspool-rs 1.0.0
+**Library version:** dataspool-rs 0.3.x
 **Status:** Stable prototype specification
 
 This document describes the DataSpool on-disk format completely enough to write a
@@ -164,7 +164,7 @@ index layout requires a new version number.
 
 ## 8. Reference implementation
 
-`dataspool-rs` 1.0.0 implements this specification:
+`dataspool-rs` 0.3.x implements this specification:
 
 - `SpoolBuilder::new`, `add_card`, `finalize` (section 3)
 - `SpoolReader::open`, `read_card`, `read_card_at` (section 4)

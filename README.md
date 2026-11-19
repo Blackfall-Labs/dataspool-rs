@@ -20,7 +20,7 @@ compatible implementation from it without reading this code.
 
 ```toml
 [dependencies]
-dataspool-rs = "1.0"
+dataspool-rs = "0.3"
 ```
 
 ## Usage

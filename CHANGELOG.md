@@ -4,10 +4,10 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org/).
 
-## [1.0.0] - 2026-11-19
+## [Unreleased]
 
-First stable release of the prototype, published with the repository's full history
-for Blackfall Labs' first anniversary. The on-disk format is unchanged from 0.3.0.
+Documentation, licensing and cleanup ahead of opening the repository with its full
+history. The crate version and the on-disk format are unchanged from 0.3.0.
 
 ### Added
 - `SPECIFICATION.md`, a complete description of the SP01 spool format and the index
@@ -44,7 +44,7 @@ for Blackfall Labs' first anniversary. The on-disk format is unchanged from 0.3.
 - `SpoolReader` for reading cards by index through the byte-offset index.
 - `PersistentVectorStore` for SQLite-backed metadata and embeddings.
 
-[1.0.0]: https://github.com/blackfall-labs/dataspool-rs/releases/tag/v1.0.0
+[Unreleased]: https://github.com/blackfall-labs/dataspool-rs/commits/main
 [0.3.0]: https://crates.io/crates/dataspool-rs/0.3.0
 [0.2.0]: https://crates.io/crates/dataspool-rs/0.2.0
 [0.1.0]: https://crates.io/crates/dataspool-rs/0.1.0
