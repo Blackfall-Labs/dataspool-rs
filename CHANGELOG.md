@@ -39,6 +39,9 @@ history. The crate version and the on-disk format are unchanged from 0.3.0.
 - A spool whose header or index is cut short (including an embedded spool whose base
   offset is at or past the end of the host file) is rejected as
   `DataSpoolError::InvalidFormat` instead of `DataSpoolError::Io(UnexpectedEof)`.
+- A spool with the wrong magic bytes is rejected as `DataSpoolError::InvalidFormat`
+  (was `DataSpoolError::Decompression`), the same as a wrong version. The rustdoc of
+  the `error` module now has a table of which situation returns which error.
 
 ### Removed
 - `dataspool.md`, an out-of-date copy of the README.

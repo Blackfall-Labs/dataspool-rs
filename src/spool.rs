@@ -199,9 +199,7 @@ impl SpoolReader {
 
         // Read and verify header
         if &header[0..4] != MAGIC {
-            return Err(DataSpoolError::Decompression(
-                "Invalid spool magic bytes".into(),
-            ));
+            return Err(DataSpoolError::InvalidFormat);
         }
         if header[4] != VERSION {
             return Err(DataSpoolError::InvalidFormat);
@@ -629,5 +627,41 @@ mod tests {
             );
         }
         fs::remove_file(&host_path).unwrap();
+    }
+
+    #[test]
+    fn test_bad_magic_and_version_are_invalid_format() {
+        let path = scratch_path("magic_src");
+        SpoolBuilder::new(&path).unwrap().finalize().unwrap();
+        let good = fs::read(&path).unwrap();
+        fs::remove_file(&path).unwrap();
+
+        let mut bad_magic = good.clone();
+        bad_magic[0..4].copy_from_slice(b"SP02");
+        let mut bad_version = good.clone();
+        bad_version[4] = 2;
+
+        for (name, bytes) in [("bad_magic", bad_magic), ("bad_version", bad_version)] {
+            let path = scratch_path(name);
+            fs::write(&path, &bytes).unwrap();
+            assert!(
+                matches!(SpoolReader::open(&path), Err(DataSpoolError::InvalidFormat)),
+                "open: {name}"
+            );
+            fs::remove_file(&path).unwrap();
+
+            let host_path = scratch_path(&format!("{name}_host"));
+            let mut host = vec![0xAA; 64];
+            host.extend_from_slice(&bytes);
+            fs::write(&host_path, &host).unwrap();
+            assert!(
+                matches!(
+                    SpoolReader::open_embedded(&host_path, 64),
+                    Err(DataSpoolError::InvalidFormat)
+                ),
+                "open_embedded: {name}"
+            );
+            fs::remove_file(&host_path).unwrap();
+        }
     }
 }
