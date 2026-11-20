@@ -65,6 +65,10 @@ history. The crate version and the on-disk format are unchanged from 0.3.0.
 - `PersistentVectorStore` turns on SQLite foreign keys for its connection, so the
   `ON DELETE CASCADE` in the schema takes effect and an embedding cannot point at a
   missing document.
+- `PersistentVectorStore::search` returns an error
+  (`rusqlite::Error::FromSqlConversionFailure`) when a stored vector's length does not
+  match the store's dimension, instead of silently comparing vectors of different
+  lengths. SPECIFICATION.md §6.2: every vector in one database shares one dimension.
 
 ### Removed
 - `dataspool.md`, an out-of-date copy of the README.

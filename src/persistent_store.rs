@@ -180,6 +180,7 @@ impl PersistentVectorStore {
             )));
         }
 
+        let dimension = self.dimension;
         let conn = self.conn.lock().unwrap();
 
         // Get all document references with embeddings (including spool offsets)
@@ -199,6 +200,24 @@ impl PersistentVectorStore {
             let spool_offset: Option<i64> = row.get(4)?;
             let spool_length: Option<i64> = row.get(5)?;
             let vector_bytes: Vec<u8> = row.get(6)?;
+
+            // Every vector in one database shares the store's dimension
+            // (SPECIFICATION.md §6.2); comparing vectors of different lengths
+            // would silently ignore part of one of them.
+            if vector_bytes.len() != dimension * 4 {
+                return Err(rusqlite::Error::FromSqlConversionFailure(
+                    6,
+                    rusqlite::types::Type::Blob,
+                    format!(
+                        "embedding for document {:?} is {} bytes; dimension {} needs {} bytes",
+                        id,
+                        vector_bytes.len(),
+                        dimension,
+                        dimension * 4
+                    )
+                    .into(),
+                ));
+            }
 
             // Deserialize vector
             let embedding: Vec<f32> = vector_bytes
@@ -448,5 +467,40 @@ mod tests {
         let hits = store.search(&[0.0, 1.0], 1).unwrap();
         assert_eq!(hits[0].doc_ref.file_path, "new.bin");
         assert!(hits[0].score > 0.99);
+    }
+
+    #[test]
+    fn test_stored_vector_of_another_dimension_is_error() {
+        let store = PersistentVectorStore::new(":memory:", 2).unwrap();
+        store
+            .add_document("ok", "ok.bin", "t", None, &[1.0, 0.0])
+            .unwrap();
+        // A vector of a different dimension written by some other program.
+        {
+            let conn = store.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO documents (id, file_path, source) VALUES ('wide', 'w.bin', 't')",
+                [],
+            )
+            .unwrap();
+            let wide: Vec<u8> = [1.0f32, 0.0, 0.0]
+                .iter()
+                .flat_map(|f| f.to_le_bytes())
+                .collect();
+            conn.execute(
+                "INSERT INTO embeddings (doc_id, vector) VALUES ('wide', ?1)",
+                params![wide],
+            )
+            .unwrap();
+        }
+
+        assert!(matches!(
+            store.search(&[1.0, 0.0], 5),
+            Err(rusqlite::Error::FromSqlConversionFailure(6, _, _))
+        ));
+
+        // Once the odd vector is gone, search works again.
+        assert!(store.delete_document("wide").unwrap());
+        assert_eq!(store.search(&[1.0, 0.0], 5).unwrap().len(), 1);
     }
 }
