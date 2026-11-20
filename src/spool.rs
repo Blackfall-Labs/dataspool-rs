@@ -226,7 +226,10 @@ impl SpoolReader {
         }
 
         // index_offset is relative to spool start — adjust to host file position.
-        file.seek(SeekFrom::Start(base_offset + index_offset))?;
+        let index_start = base_offset
+            .checked_add(index_offset)
+            .ok_or(DataSpoolError::InvalidFormat)?;
+        file.seek(SeekFrom::Start(index_start))?;
         let mut entries = Vec::with_capacity(card_count as usize);
 
         for _ in 0..card_count {
@@ -239,10 +242,10 @@ impl SpoolReader {
             let length = u32::from_le_bytes(length_bytes);
 
             // Adjust card offset to host file position.
-            entries.push(SpoolEntry {
-                offset: base_offset + offset,
-                length,
-            });
+            let offset = base_offset
+                .checked_add(offset)
+                .ok_or(DataSpoolError::InvalidFormat)?;
+            entries.push(SpoolEntry { offset, length });
         }
 
         Ok(Self { file, entries })
@@ -485,6 +488,41 @@ mod tests {
         ));
 
         fs::remove_file(&path).unwrap();
+        fs::remove_file(&host_path).unwrap();
+    }
+
+    /// Build a one-card spool and return its bytes with the first index
+    /// entry's offset and length replaced.
+    fn spool_with_patched_entry(name: &str, offset: u64, length: u32) -> Vec<u8> {
+        let path = scratch_path(name);
+        {
+            let mut builder = SpoolBuilder::new(&path).unwrap();
+            builder.add_card(b"one card").unwrap();
+            builder.finalize().unwrap();
+        }
+        let mut bytes = fs::read(&path).unwrap();
+        fs::remove_file(&path).unwrap();
+
+        let index_offset = u64::from_le_bytes(bytes[9..17].try_into().unwrap()) as usize;
+        bytes[index_offset..index_offset + 8].copy_from_slice(&offset.to_le_bytes());
+        bytes[index_offset + 8..index_offset + 12].copy_from_slice(&length.to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn test_embedded_offset_overflow_is_rejected() {
+        let bytes = spool_with_patched_entry("overflow_src", u64::MAX, 8);
+
+        let host_path = scratch_path("overflow_host");
+        let mut host = vec![0xAA; 64];
+        host.extend_from_slice(&bytes);
+        fs::write(&host_path, &host).unwrap();
+
+        assert!(matches!(
+            SpoolReader::open_embedded(&host_path, 64),
+            Err(DataSpoolError::InvalidFormat)
+        ));
+
         fs::remove_file(&host_path).unwrap();
     }
 }

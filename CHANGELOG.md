@@ -26,6 +26,8 @@ history. The crate version and the on-disk format are unchanged from 0.3.0.
   of opening as an empty spool.
 - A corrupt card count no longer aborts the process on a huge allocation: the index must
   fit in the file (or embedded region) or the spool is rejected as an invalid format.
+- `SpoolReader::open_embedded` no longer overflows when adding the base offset; an
+  overflow is rejected as an invalid format.
 
 ### Removed
 - `dataspool.md`, an out-of-date copy of the README.
