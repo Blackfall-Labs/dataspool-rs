@@ -85,6 +85,10 @@ history. The crate version and the on-disk format are unchanged from 0.3.0.
   was written. A stored `spool_length` outside the `u32` range is an error
   (`rusqlite::Error::FromSqlConversionFailure`) instead of being truncated.
 
+### Documentation
+- The `persistent_store` module no longer claims an HNSW index. Search is an exact
+  cosine-similarity scan, which is what SPECIFICATION.md §6.3 ranks by.
+
 ### Removed
 - `dataspool.md`, an out-of-date copy of the README.
 

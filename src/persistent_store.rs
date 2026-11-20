@@ -1,6 +1,10 @@
 //! Persistent Vector Store with SQLite
 //!
-//! Stores documents, embeddings, and HNSW index in SQLite for instant loading
+//! Stores document references and their embeddings in SQLite
+//! (SPECIFICATION.md §6). Search is an exact scan: every stored vector is
+//! compared with the query by cosine similarity. There is no approximate
+//! nearest-neighbour index such as HNSW; §6.3 allows another index structure
+//! only if it returns the same ranking as this exact scan.
 
 use rusqlite::{params, Connection};
 use std::path::Path;
