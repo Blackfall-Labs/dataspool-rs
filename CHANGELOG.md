@@ -49,7 +49,6 @@ history. The crate version and the on-disk format are unchanged from 0.3.0.
 ### Added (API)
 - `SpoolReader::spool_len()`: the spool's total length (`index_offset + 12 *
   card_count`), so a host file can find where an embedded spool ends.
-
 - `PersistentVectorStore::delete_document()`: deletes a document; its embedding
   goes with it through the schema's `ON DELETE CASCADE`.
 
