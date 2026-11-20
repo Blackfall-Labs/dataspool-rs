@@ -4,10 +4,21 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.4.0] - Unreleased
 
 Documentation, licensing and cleanup ahead of opening the repository with its full
-history. The crate version and the on-disk format are unchanged from 0.3.0.
+history. The SP01 on-disk format and the index database schema did not change;
+spools and databases written by 0.3.0 still open (see `tests/compat_fixtures.rs`).
+
+The version moves to 0.4.0 because three changes are visible to callers (details
+under "Changed (behavior)" and "Fixed"):
+
+- A `SpoolReader` opened with `open_embedded` returns spool-relative offsets from
+  `entries()`, `get_entry()` and `read_card_at()` (they were host-file positions).
+- A spool with the wrong magic bytes is rejected as `DataSpoolError::InvalidFormat`
+  (was `DataSpoolError::Decompression`).
+- `SpoolReader::read_card_at` checks that the range lies within the card data and
+  returns `DataSpoolError::Decompression` otherwise.
 
 ### Added
 - `SPECIFICATION.md`, a complete description of the SP01 spool format and the index
@@ -114,7 +125,7 @@ history. The crate version and the on-disk format are unchanged from 0.3.0.
 - `SpoolReader` for reading cards by index through the byte-offset index.
 - `PersistentVectorStore` for SQLite-backed metadata and embeddings.
 
-[Unreleased]: https://github.com/blackfall-labs/dataspool-rs/commits/main
+[0.4.0]: https://crates.io/crates/dataspool-rs/0.4.0
 [0.3.0]: https://crates.io/crates/dataspool-rs/0.3.0
 [0.2.0]: https://crates.io/crates/dataspool-rs/0.2.0
 [0.1.0]: https://crates.io/crates/dataspool-rs/0.1.0
