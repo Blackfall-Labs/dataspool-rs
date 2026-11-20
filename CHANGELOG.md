@@ -15,6 +15,9 @@ history. The crate version and the on-disk format are unchanged from 0.3.0.
 - `LICENSE-APACHE`: the crate is now dual licensed under MIT OR Apache-2.0.
 - Compatibility fixtures in `tests/fixtures/` written by the published 0.3.0 release
   and by this branch before the specification work, with tests that read them.
+- `tests/spec_conformance.rs`: pins the signatures of the reference-implementation
+  functions SPECIFICATION.md §8 names and checks written bytes and reads against
+  §2 to §6. The crate rustdoc maps each specification section to its API.
 
 ### Changed
 - README rewritten so every example matches the real API.
