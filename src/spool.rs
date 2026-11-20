@@ -217,11 +217,16 @@ impl SpoolReader {
     /// Read a card by index
     pub fn read_card(&mut self, index: usize) -> Result<Vec<u8>> {
         if index >= self.entries.len() {
-            return Err(DataSpoolError::Decompression(format!(
-                "Card index {} out of bounds (max: {})",
-                index,
-                self.entries.len() - 1
-            )));
+            return Err(match self.entries.len().checked_sub(1) {
+                Some(max) => DataSpoolError::Decompression(format!(
+                    "Card index {} out of bounds (max: {})",
+                    index, max
+                )),
+                None => DataSpoolError::Decompression(format!(
+                    "Card index {} out of bounds (spool is empty)",
+                    index
+                )),
+            });
         }
 
         let entry = &self.entries[index];
@@ -360,5 +365,29 @@ mod tests {
 
         fs::remove_file(temp_spool).unwrap();
         fs::remove_file(temp_host).unwrap();
+    }
+
+    /// A unique scratch path for one test, so tests can run in parallel.
+    fn scratch_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "dataspool_test_{}_{}.spool",
+            name,
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn test_read_card_from_empty_spool_is_error() {
+        let path = scratch_path("empty_read");
+        SpoolBuilder::new(&path).unwrap().finalize().unwrap();
+
+        let mut reader = SpoolReader::open(&path).unwrap();
+        assert_eq!(reader.card_count(), 0);
+        assert!(matches!(
+            reader.read_card(0),
+            Err(DataSpoolError::Decompression(_))
+        ));
+
+        fs::remove_file(&path).unwrap();
     }
 }

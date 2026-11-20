@@ -21,6 +21,7 @@ history. The crate version and the on-disk format are unchanged from 0.3.0.
 
 ### Fixed
 - All Clippy warnings.
+- `SpoolReader::read_card` on an empty spool returns an error instead of panicking.
 
 ### Removed
 - `dataspool.md`, an out-of-date copy of the README.
