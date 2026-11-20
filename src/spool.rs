@@ -14,6 +14,9 @@ const MAGIC: &[u8; 4] = b"SP01";
 /// Spool file format version
 const VERSION: u8 = 1;
 
+/// Size of the spool header: magic (4) + version (1) + card count (4) + index offset (8)
+const HEADER_LEN: u64 = 17;
+
 /// Entry in the spool index
 #[derive(Debug, Clone)]
 pub struct SpoolEntry {
@@ -132,6 +135,12 @@ impl SpoolReader {
         file.read_exact(&mut index_offset_bytes)?;
         let index_offset = u64::from_le_bytes(index_offset_bytes);
 
+        // An unfinished spool still holds the placeholder offset 0; the index
+        // can never start inside the header.
+        if index_offset < HEADER_LEN {
+            return Err(DataSpoolError::InvalidFormat);
+        }
+
         // Read index
         file.seek(SeekFrom::Start(index_offset))?;
         let mut entries = Vec::with_capacity(card_count as usize);
@@ -185,6 +194,12 @@ impl SpoolReader {
         let mut index_offset_bytes = [0u8; 8];
         file.read_exact(&mut index_offset_bytes)?;
         let index_offset = u64::from_le_bytes(index_offset_bytes);
+
+        // An unfinished spool still holds the placeholder offset 0; the index
+        // can never start inside the header.
+        if index_offset < HEADER_LEN {
+            return Err(DataSpoolError::InvalidFormat);
+        }
 
         // index_offset is relative to spool start — adjust to host file position.
         file.seek(SeekFrom::Start(base_offset + index_offset))?;
@@ -389,5 +404,32 @@ mod tests {
         ));
 
         fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn test_unfinished_spool_is_rejected() {
+        let path = scratch_path("unfinished");
+        {
+            let mut builder = SpoolBuilder::new(&path).unwrap();
+            builder.add_card(b"written but never indexed").unwrap();
+            // Dropped without finalize(): the header keeps index_offset = 0.
+        }
+
+        assert!(matches!(
+            SpoolReader::open(&path),
+            Err(DataSpoolError::InvalidFormat)
+        ));
+
+        let host_path = scratch_path("unfinished_host");
+        let mut host = vec![0xAA; 64];
+        host.extend_from_slice(&fs::read(&path).unwrap());
+        fs::write(&host_path, &host).unwrap();
+        assert!(matches!(
+            SpoolReader::open_embedded(&host_path, 64),
+            Err(DataSpoolError::InvalidFormat)
+        ));
+
+        fs::remove_file(&path).unwrap();
+        fs::remove_file(&host_path).unwrap();
     }
 }
