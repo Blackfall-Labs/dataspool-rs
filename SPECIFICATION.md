@@ -170,3 +170,40 @@ index layout requires a new version number.
 - `SpoolReader::open`, `read_card`, `read_card_at` (section 4)
 - `SpoolReader::open_embedded` (section 5)
 - `PersistentVectorStore` (section 6)
+
+## 9. Implementation notes for 0.4.0
+
+Choices `dataspool-rs` 0.4.0 makes where this specification is silent. The SP01
+format (sections 2 to 5) and the database schema (section 6) did not change in
+0.4.0; files written by 0.3.0 still open.
+
+- **Search ranking.** Cosine similarity is computed in `f64` and returned as `f32`.
+  A query or stored vector with zero magnitude has similarity 0. Documents with
+  equal similarity are ordered by `id`, ascending byte order, so the ranking does
+  not depend on storage order.
+- **Search is an exact scan.** Every stored vector is compared with the query.
+  Section 6.3 allows another index structure only if it returns the same ranking,
+  which rules out approximate nearest-neighbour indexes.
+- **Missing cards.** A card index `i >= card_count`, and a `read_card_at` range that
+  does not lie within the card data (between the end of the header and the start
+  of the index), return `DataSpoolError::Decompression`.
+- **Store input errors vs stored-data errors.** Bad input to the store (an
+  embedding or query whose length is not the dimension, a spool offset without a
+  length or a length without an offset, an offset above `i64::MAX`) returns
+  `rusqlite::Error::InvalidParameterName` and writes nothing. Bad data already in
+  the database, found by `search` (a vector that is not `4 * dimension` bytes, a
+  `spool_length` outside the `u32` range), returns
+  `rusqlite::Error::FromSqlConversionFailure`.
+- **Older data reads leniently.** The both-or-neither rule of section 6.1 is
+  checked on write only: a stored row with just one of `spool_offset` and
+  `spool_length` set is returned as stored. A negative `spool_offset` (0.3.0
+  stored offsets above `i64::MAX` that way) reads back as its `u64` bit pattern.
+- **Trailing bytes.** A stand-alone spool file may have extra bytes after the
+  index; the reader accepts them and never reads them.
+- **Embedded offsets.** A reader opened on an embedded spool returns the same
+  spool-relative offsets as a stand-alone copy (`entries`, `get_entry`,
+  `read_card_at`). `base_offset()` returns where the spool starts in the host file
+  and `spool_len()` its total length (`index_offset + 12 * card_count`).
+- **Deleting documents.** `delete_document` removes the document row; its
+  embedding goes with it through `ON DELETE CASCADE`, which works because the store
+  turns on SQLite foreign keys for its connection.

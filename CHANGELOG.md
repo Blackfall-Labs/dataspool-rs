@@ -96,6 +96,10 @@ under "Changed (behavior)" and "Fixed"):
   (`rusqlite::Error::FromSqlConversionFailure`) instead of being truncated.
 
 ### Documentation
+- SPECIFICATION.md §9, "Implementation notes for 0.4.0", records the choices this
+  release makes where the specification is silent (search tie-breaking and
+  precision, error variants, lenient reads of older data, trailing bytes, embedded
+  offsets, cascading deletes, exact search).
 - The `persistent_store` module no longer claims an HNSW index. Search is an exact
   cosine-similarity scan, which is what SPECIFICATION.md §6.3 ranks by.
 - The crate docs no longer list card "variants" (images, blobs). Cards are opaque
