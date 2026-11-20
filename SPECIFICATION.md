@@ -3,7 +3,7 @@
 **Format:** SP01 (spool file) plus an optional SQLite index database
 **Format version:** 1
 **Library version:** dataspool-rs 0.4.x
-**Status:** Stable prototype specification
+**Status:** Prototype
 
 This document describes the DataSpool on-disk format completely enough to write a
 compatible reader or writer without reading the Rust source. All integers are
