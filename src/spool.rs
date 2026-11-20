@@ -29,6 +29,15 @@ fn index_fits(index_offset: u64, card_count: u32, spool_len: u64) -> bool {
         .is_some_and(|index_end| index_end <= spool_len)
 }
 
+/// Whether a card at `offset` with `length` bytes (both relative to the spool
+/// start) lies between the end of the header and the start of the index.
+fn entry_fits(offset: u64, length: u32, index_offset: u64) -> bool {
+    offset >= HEADER_LEN
+        && offset
+            .checked_add(u64::from(length))
+            .is_some_and(|card_end| card_end <= index_offset)
+}
+
 /// Entry in the spool index
 #[derive(Debug, Clone)]
 pub struct SpoolEntry {
@@ -171,6 +180,10 @@ impl SpoolReader {
             file.read_exact(&mut length_bytes)?;
             let length = u32::from_le_bytes(length_bytes);
 
+            if !entry_fits(offset, length, index_offset) {
+                return Err(DataSpoolError::InvalidFormat);
+            }
+
             entries.push(SpoolEntry { offset, length });
         }
 
@@ -240,6 +253,10 @@ impl SpoolReader {
             let mut length_bytes = [0u8; 4];
             file.read_exact(&mut length_bytes)?;
             let length = u32::from_le_bytes(length_bytes);
+
+            if !entry_fits(offset, length, index_offset) {
+                return Err(DataSpoolError::InvalidFormat);
+            }
 
             // Adjust card offset to host file position.
             let offset = base_offset
@@ -524,5 +541,41 @@ mod tests {
         ));
 
         fs::remove_file(&host_path).unwrap();
+    }
+
+    #[test]
+    fn test_out_of_range_entries_are_rejected() {
+        // The one card is 8 bytes at offset 17, so the index starts at 25.
+        let cases: [(&str, u64, u32); 4] = [
+            ("in_header", 0, 8),
+            ("overlaps_index", 20, 8),
+            ("past_index", 25, 8),
+            ("huge_length", 17, u32::MAX),
+        ];
+
+        for (name, offset, length) in cases {
+            let bytes = spool_with_patched_entry(name, offset, length);
+
+            let path = scratch_path(name);
+            fs::write(&path, &bytes).unwrap();
+            assert!(
+                matches!(SpoolReader::open(&path), Err(DataSpoolError::InvalidFormat)),
+                "open accepted entry {name}"
+            );
+            fs::remove_file(&path).unwrap();
+
+            let host_path = scratch_path(&format!("{name}_host"));
+            let mut host = vec![0xAA; 64];
+            host.extend_from_slice(&bytes);
+            fs::write(&host_path, &host).unwrap();
+            assert!(
+                matches!(
+                    SpoolReader::open_embedded(&host_path, 64),
+                    Err(DataSpoolError::InvalidFormat)
+                ),
+                "open_embedded accepted entry {name}"
+            );
+            fs::remove_file(&host_path).unwrap();
+        }
     }
 }

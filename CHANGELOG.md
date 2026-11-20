@@ -28,6 +28,8 @@ history. The crate version and the on-disk format are unchanged from 0.3.0.
   fit in the file (or embedded region) or the spool is rejected as an invalid format.
 - `SpoolReader::open_embedded` no longer overflows when adding the base offset; an
   overflow is rejected as an invalid format.
+- Index entries are validated on open: a card must lie between the header and the
+  index, otherwise the spool is rejected as an invalid format.
 
 ### Removed
 - `dataspool.md`, an out-of-date copy of the README.
