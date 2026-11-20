@@ -1,9 +1,9 @@
 [package]
 name = "dataspool-rs"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 authors = ["Magnus Trent <magnus@blackfall.dev>"]
-license = "MIT"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/Blackfall-Labs/dataspool-rs"
 description = "Efficient data bundling system with indexed .spool files and SQLite vector database"
 keywords = ["spool", "bundling", "database", "indexing", "vectors"]
@@ -13,8 +13,6 @@ documentation = "https://docs.rs/dataspool-rs"
 exclude = ["target/**", "Cargo.lock", ".git/**"]
 
 [dependencies]
-# Compression (for reading compressed items in spool)
-bytepunch = { version = "0.1.0", package = "bytepunch-rs", registry = "blackfall" }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
