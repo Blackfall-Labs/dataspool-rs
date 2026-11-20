@@ -38,6 +38,34 @@ fn entry_fits(offset: u64, length: u32, index_offset: u64) -> bool {
             .is_some_and(|card_end| card_end <= index_offset)
 }
 
+/// Convert a card length to its on-disk u32, or fail if it does not fit.
+fn checked_card_length(len: usize) -> Result<u32> {
+    u32::try_from(len).map_err(|_| {
+        DataSpoolError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "card of {} bytes exceeds the spool limit of {} bytes",
+                len,
+                u32::MAX
+            ),
+        ))
+    })
+}
+
+/// Convert a card count to its on-disk u32, or fail if it does not fit.
+fn checked_card_count(count: usize) -> Result<u32> {
+    u32::try_from(count).map_err(|_| {
+        DataSpoolError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "{} cards exceed the spool limit of {} cards",
+                count,
+                u32::MAX
+            ),
+        ))
+    })
+}
+
 /// Entry in the spool index
 #[derive(Debug, Clone)]
 pub struct SpoolEntry {
@@ -86,7 +114,9 @@ impl SpoolBuilder {
     /// Returns the entry with offset and length
     pub fn add_card(&mut self, card_data: &[u8]) -> Result<SpoolEntry> {
         let offset = self.current_offset;
-        let length = card_data.len() as u32;
+        // Check both limits before writing anything for this card.
+        let length = checked_card_length(card_data.len())?;
+        checked_card_count(self.entries.len() + 1)?;
 
         // Write card data
         self.output.write_all(card_data)?;
@@ -101,7 +131,7 @@ impl SpoolBuilder {
     /// Finalize the spool and write index
     pub fn finalize(mut self) -> Result<()> {
         let index_offset = self.current_offset;
-        let card_count = self.entries.len() as u32;
+        let card_count = checked_card_count(self.entries.len())?;
 
         // Write index at end of file
         for entry in &self.entries {
@@ -577,5 +607,24 @@ mod tests {
             );
             fs::remove_file(&host_path).unwrap();
         }
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_writer_limits_are_checked() {
+        let max = u32::MAX as usize;
+
+        assert_eq!(checked_card_length(0).unwrap(), 0);
+        assert_eq!(checked_card_length(max).unwrap(), u32::MAX);
+        assert!(matches!(
+            checked_card_length(max + 1),
+            Err(DataSpoolError::Io(_))
+        ));
+
+        assert_eq!(checked_card_count(max).unwrap(), u32::MAX);
+        assert!(matches!(
+            checked_card_count(max + 1),
+            Err(DataSpoolError::Io(_))
+        ));
     }
 }
