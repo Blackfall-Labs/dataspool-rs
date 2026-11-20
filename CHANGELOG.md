@@ -47,6 +47,9 @@ history. The crate version and the on-disk format are unchanged from 0.3.0.
 - `SpoolReader::spool_len()`: the spool's total length (`index_offset + 12 *
   card_count`), so a host file can find where an embedded spool ends.
 
+- `PersistentVectorStore::delete_document()`: deletes a document; its embedding
+  goes with it through the schema's `ON DELETE CASCADE`.
+
 ### Changed (behavior)
 - A `SpoolReader` opened with `open_embedded` keeps the index's spool-relative
   offsets, as SPECIFICATION.md §2.1 and §5 define them: `entries()`, `get_entry()`
@@ -59,6 +62,9 @@ history. The crate version and the on-disk format are unchanged from 0.3.0.
 - `PersistentVectorStore::add_document_with_spool` rejects a spool offset without a
   length or a length without an offset (`rusqlite::Error::InvalidParameterName`);
   SPECIFICATION.md §6.1 requires both or neither.
+- `PersistentVectorStore` turns on SQLite foreign keys for its connection, so the
+  `ON DELETE CASCADE` in the schema takes effect and an embedding cannot point at a
+  missing document.
 
 ### Removed
 - `dataspool.md`, an out-of-date copy of the README.

@@ -41,8 +41,14 @@ pub struct PersistentVectorStore {
 
 impl PersistentVectorStore {
     /// Create or open a persistent vector store
+    ///
+    /// The connection runs with SQLite foreign keys enabled, so the
+    /// `ON DELETE CASCADE` on `embeddings.doc_id` (SPECIFICATION.md §6) takes
+    /// effect: deleting a document deletes its embedding.
     pub fn new<P: AsRef<Path>>(path: P, dimension: usize) -> rusqlite::Result<Self> {
         let conn = Connection::open(path)?;
+        // Foreign key enforcement is per connection and off by default in SQLite.
+        conn.pragma_update(None, "foreign_keys", true)?;
 
         let store = Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -232,6 +238,15 @@ impl PersistentVectorStore {
             .collect())
     }
 
+    /// Delete a document and, through `ON DELETE CASCADE`, its embedding.
+    ///
+    /// Returns `true` if a document with this id existed.
+    pub fn delete_document(&self, id: &str) -> rusqlite::Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        let deleted = conn.execute("DELETE FROM documents WHERE id = ?1", params![id])?;
+        Ok(deleted > 0)
+    }
+
     /// Get document count
     pub fn count(&self) -> rusqlite::Result<usize> {
         let conn = self.conn.lock().unwrap();
@@ -369,5 +384,69 @@ mod tests {
             .add_document_with_spool("neither", "a.bin", "t", None, None, None, &v)
             .unwrap();
         assert_eq!(store.count().unwrap(), 2);
+    }
+
+    fn embedding_count(store: &PersistentVectorStore) -> i64 {
+        store
+            .conn
+            .lock()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM embeddings", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn test_delete_document_cascades_to_embedding() {
+        let store = PersistentVectorStore::new(":memory:", 2).unwrap();
+        store
+            .add_document("keep", "k.bin", "t", None, &[1.0, 0.0])
+            .unwrap();
+        store
+            .add_document("drop", "d.bin", "t", None, &[0.0, 1.0])
+            .unwrap();
+        assert_eq!(embedding_count(&store), 2);
+
+        assert!(store.delete_document("drop").unwrap());
+        assert!(!store.delete_document("drop").unwrap());
+        assert!(!store.delete_document("never-added").unwrap());
+
+        assert_eq!(store.count().unwrap(), 1);
+        assert_eq!(embedding_count(&store), 1);
+        let hits = store.search(&[0.0, 1.0], 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].doc_ref.id, "keep");
+    }
+
+    #[test]
+    fn test_foreign_keys_are_enforced() {
+        let store = PersistentVectorStore::new(":memory:", 2).unwrap();
+        let conn = store.conn.lock().unwrap();
+        let on: i64 = conn
+            .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(on, 1);
+        // An embedding cannot point at a document that does not exist.
+        assert!(conn
+            .execute(
+                "INSERT INTO embeddings (doc_id, vector) VALUES ('ghost', x'00000000')",
+                [],
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn test_replacing_a_document_keeps_one_embedding() {
+        let store = PersistentVectorStore::new(":memory:", 2).unwrap();
+        store
+            .add_document("doc", "old.bin", "t", None, &[1.0, 0.0])
+            .unwrap();
+        store
+            .add_document("doc", "new.bin", "t", None, &[0.0, 1.0])
+            .unwrap();
+        assert_eq!(store.count().unwrap(), 1);
+        assert_eq!(embedding_count(&store), 1);
+        let hits = store.search(&[0.0, 1.0], 1).unwrap();
+        assert_eq!(hits[0].doc_ref.file_path, "new.bin");
+        assert!(hits[0].score > 0.99);
     }
 }
