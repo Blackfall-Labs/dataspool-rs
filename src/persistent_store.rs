@@ -209,8 +209,8 @@ impl PersistentVectorStore {
             results.push((doc_ref, score));
         }
 
-        // Sort by similarity (descending)
-        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        // Sort by similarity (descending), NaN scores last
+        results.sort_by(|a, b| score_order(a.1, b.1));
 
         // Take top_k
         Ok(results
@@ -225,6 +225,17 @@ impl PersistentVectorStore {
         let conn = self.conn.lock().unwrap();
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM documents", [], |row| row.get(0))?;
         Ok(count as usize)
+    }
+}
+
+/// Total ordering for search scores: highest first, NaN scores last.
+fn score_order(a: f32, b: f32) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    match (a.is_nan(), b.is_nan()) {
+        (true, true) => Ordering::Equal,
+        (true, false) => Ordering::Greater,
+        (false, true) => Ordering::Less,
+        (false, false) => b.total_cmp(&a),
     }
 }
 
@@ -297,5 +308,32 @@ mod tests {
         assert_eq!(results[0].doc_ref.id, "test-2");
         assert_eq!(results[0].doc_ref.spool_offset, Some(1024));
         assert_eq!(results[0].doc_ref.spool_length, Some(512));
+    }
+
+    #[test]
+    fn test_search_with_nan_score() {
+        let store = PersistentVectorStore::new(":memory:", 4).unwrap();
+        let query = [1.0f32, 0.0, 0.0, 0.0];
+
+        store
+            .add_document(
+                "nan",
+                "docs/nan.bp",
+                "test",
+                None,
+                &[f32::NAN, 0.0, 0.0, 0.0],
+            )
+            .unwrap();
+        store
+            .add_document("far", "docs/far.bp", "test", None, &[0.0, 1.0, 0.0, 0.0])
+            .unwrap();
+        store
+            .add_document("near", "docs/near.bp", "test", None, &[1.0, 0.0, 0.0, 0.0])
+            .unwrap();
+
+        let results = store.search(&query, 3).unwrap();
+        let ids: Vec<&str> = results.iter().map(|r| r.doc_ref.id.as_str()).collect();
+        assert_eq!(ids, ["near", "far", "nan"]);
+        assert!(results[2].score.is_nan());
     }
 }

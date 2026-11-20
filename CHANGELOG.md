@@ -32,6 +32,8 @@ history. The crate version and the on-disk format are unchanged from 0.3.0.
   index, otherwise the spool is rejected as an invalid format.
 - `SpoolBuilder` returns an error instead of silently truncating a card longer than
   `u32::MAX` bytes or a card count above `u32::MAX`; nothing is written for that card.
+- `PersistentVectorStore::search` no longer panics when a score is NaN; NaN scores
+  are ranked last.
 
 ### Removed
 - `dataspool.md`, an out-of-date copy of the README.
