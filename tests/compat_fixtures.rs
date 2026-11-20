@@ -90,7 +90,10 @@ fn old_index_databases_read() {
         let card2 = &hits[2].doc_ref;
         assert_eq!(
             reader
-                .read_card_at(card2.spool_offset.unwrap(), card2.spool_length.unwrap() as usize)
+                .read_card_at(
+                    card2.spool_offset.unwrap(),
+                    card2.spool_length.unwrap() as usize
+                )
                 .unwrap(),
             CARDS[2]
         );

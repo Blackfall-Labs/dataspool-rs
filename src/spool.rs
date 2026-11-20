@@ -66,10 +66,12 @@ fn checked_card_count(count: usize) -> Result<u32> {
     })
 }
 
-/// Entry in the spool index
+/// Entry in the spool index (SPECIFICATION.md §2.1)
 #[derive(Debug, Clone)]
 pub struct SpoolEntry {
-    /// Byte offset in spool file where card starts
+    /// Byte offset where the card starts, relative to the first byte of the
+    /// spool. For an embedded spool this is not a position in the host file:
+    /// the card is at `base_offset + offset` there.
     pub offset: u64,
     /// Length of card in bytes
     pub length: u32,
@@ -151,10 +153,20 @@ impl SpoolBuilder {
 }
 
 /// Reads cards from a spool file
+///
+/// Every offset the reader takes or returns ([`SpoolEntry::offset`],
+/// [`read_card_at`](Self::read_card_at)) is relative to the start of the
+/// spool, as the index stores it, whether the spool is a file of its own or
+/// embedded in a host file. Only [`base_offset`](Self::base_offset) is a
+/// host-file position.
 pub struct SpoolReader {
     /// Input file
     file: File,
-    /// Index entries loaded from spool
+    /// Position of the spool's first byte in `file` (0 unless embedded)
+    base: u64,
+    /// Offset of the index, relative to the spool start
+    index_offset: u64,
+    /// Index entries loaded from spool, offsets relative to the spool start
     entries: Vec<SpoolEntry>,
 }
 
@@ -176,10 +188,13 @@ impl SpoolReader {
 
     /// Open a spool embedded within a larger file at a given byte offset.
     ///
-    /// Reads the SP01 header starting at `base_offset`, then adjusts all
-    /// internal offsets so that `read_card()` seeks to the correct position
-    /// within the host file. This enables direct access to spool data
-    /// stitched into an Engram archive without temp extraction.
+    /// Reads the SP01 header starting at `base_offset` (SPECIFICATION.md §5).
+    /// The index keeps its spool-relative offsets: [`entries`](Self::entries),
+    /// [`get_entry`](Self::get_entry) and [`read_card_at`](Self::read_card_at)
+    /// use the same offsets as a stand-alone copy of the spool, and the reader
+    /// adds `base_offset` when it seeks in the host file. This enables direct
+    /// access to spool data stitched into an Engram archive without temp
+    /// extraction.
     pub fn open_embedded<P: AsRef<Path>>(path: P, base_offset: u64) -> Result<Self> {
         Self::open_at(File::open(path)?, base_offset)
     }
@@ -238,14 +253,15 @@ impl SpoolReader {
                 return Err(DataSpoolError::InvalidFormat);
             }
 
-            // Adjust card offset to host file position.
-            let offset = base
-                .checked_add(offset)
-                .ok_or(DataSpoolError::InvalidFormat)?;
             entries.push(SpoolEntry { offset, length });
         }
 
-        Ok(Self { file, entries })
+        Ok(Self {
+            file,
+            base,
+            index_offset,
+            entries,
+        })
     }
 
     /// Get number of cards in spool
@@ -272,9 +288,26 @@ impl SpoolReader {
         self.read_card_at(entry.offset, entry.length as usize)
     }
 
-    /// Read a card at specific offset and length
+    /// Read `length` bytes at `offset`, relative to the start of the spool
+    /// (for example a [`SpoolEntry`] or a `spool_offset`/`spool_length` pair
+    /// from the index database).
+    ///
+    /// The range must lie within the card data, between the end of the header
+    /// and the start of the index; otherwise this returns
+    /// [`DataSpoolError::Decompression`] without reading or allocating.
     pub fn read_card_at(&mut self, offset: u64, length: usize) -> Result<Vec<u8>> {
-        self.file.seek(SeekFrom::Start(offset))?;
+        let in_card_data =
+            u32::try_from(length).is_ok_and(|length| entry_fits(offset, length, self.index_offset));
+        if !in_card_data {
+            return Err(DataSpoolError::Decompression(format!(
+                "{} bytes at offset {} are outside the card data (bytes {}..{})",
+                length, offset, HEADER_LEN, self.index_offset
+            )));
+        }
+
+        // The base plus an in-range offset was checked on open not to overflow
+        // (the index, which follows every card, fits in the file).
+        self.file.seek(SeekFrom::Start(self.base + offset))?;
 
         let mut buffer = vec![0u8; length];
         self.file.read_exact(&mut buffer)?;
@@ -290,6 +323,13 @@ impl SpoolReader {
     /// Get all entries
     pub fn entries(&self) -> &[SpoolEntry] {
         &self.entries
+    }
+
+    /// Position of the spool's first byte in the file it was opened from: the
+    /// `base_offset` given to [`open_embedded`](Self::open_embedded), or 0 for
+    /// [`open`](Self::open).
+    pub fn base_offset(&self) -> u64 {
+        self.base
     }
 }
 
@@ -663,5 +703,75 @@ mod tests {
             );
             fs::remove_file(&host_path).unwrap();
         }
+    }
+
+    #[test]
+    fn test_embedded_entries_are_spool_relative() {
+        let spool_path = scratch_path("relative_src");
+        let card1 = b"card one";
+        let card2 = b"card two, longer";
+        {
+            let mut builder = SpoolBuilder::new(&spool_path).unwrap();
+            builder.add_card(card1).unwrap();
+            builder.add_card(card2).unwrap();
+            builder.finalize().unwrap();
+        }
+        let mut host = vec![0xAA; 64];
+        host.extend_from_slice(&fs::read(&spool_path).unwrap());
+        host.extend_from_slice(&[0xBB; 32]);
+        let host_path = scratch_path("relative_host");
+        fs::write(&host_path, &host).unwrap();
+
+        let standalone = SpoolReader::open(&spool_path).unwrap();
+        let mut embedded = SpoolReader::open_embedded(&host_path, 64).unwrap();
+        assert_eq!(standalone.base_offset(), 0);
+        assert_eq!(embedded.base_offset(), 64);
+
+        // Same offsets as the stand-alone spool, as stored in its index.
+        for (a, b) in standalone.entries().iter().zip(embedded.entries()) {
+            assert_eq!((a.offset, a.length), (b.offset, b.length));
+        }
+        assert_eq!(embedded.get_entry(0).unwrap().offset, 17);
+
+        // read_card_at takes spool-relative offsets.
+        let e = embedded.get_entry(1).unwrap().clone();
+        assert_eq!(
+            embedded.read_card_at(e.offset, e.length as usize).unwrap(),
+            card2
+        );
+
+        fs::remove_file(&spool_path).unwrap();
+        fs::remove_file(&host_path).unwrap();
+    }
+
+    #[test]
+    fn test_read_card_at_outside_card_data_is_error() {
+        let path = scratch_path("read_at_range");
+        {
+            let mut builder = SpoolBuilder::new(&path).unwrap();
+            builder.add_card(b"one card").unwrap(); // bytes 17..25, index at 25
+            builder.finalize().unwrap();
+        }
+        let mut reader = SpoolReader::open(&path).unwrap();
+        assert_eq!(reader.read_card_at(17, 8).unwrap(), b"one card");
+        assert_eq!(reader.read_card_at(20, 5).unwrap(), b" card");
+
+        for (offset, length) in [
+            (0, 4),           // header
+            (16, 2),          // straddles header and card data
+            (20, 8),          // runs into the index
+            (25, 12),         // the index itself
+            (17, usize::MAX), // huge length must not allocate
+            (u64::MAX, 1),    // overflow
+        ] {
+            assert!(
+                matches!(
+                    reader.read_card_at(offset, length),
+                    Err(DataSpoolError::Decompression(_))
+                ),
+                "read_card_at({offset}, {length}) succeeded"
+            );
+        }
+        fs::remove_file(&path).unwrap();
     }
 }

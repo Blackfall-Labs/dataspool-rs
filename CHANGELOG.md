@@ -43,6 +43,16 @@ history. The crate version and the on-disk format are unchanged from 0.3.0.
   (was `DataSpoolError::Decompression`), the same as a wrong version. The rustdoc of
   the `error` module now has a table of which situation returns which error.
 
+### Changed (behavior)
+- A `SpoolReader` opened with `open_embedded` keeps the index's spool-relative
+  offsets, as SPECIFICATION.md §2.1 and §5 define them: `entries()`, `get_entry()`
+  and `read_card_at()` use the same offsets as a stand-alone copy of the spool (they
+  were host-file positions before). The new `SpoolReader::base_offset()` returns
+  where the spool starts in the host file.
+- `SpoolReader::read_card_at` checks that the range lies within the card data and
+  returns `DataSpoolError::Decompression` otherwise, instead of reading the header,
+  the index, past the end of the file, or allocating an arbitrary length.
+
 ### Removed
 - `dataspool.md`, an out-of-date copy of the README.
 
