@@ -56,6 +56,9 @@ history. The crate version and the on-disk format are unchanged from 0.3.0.
 - `SpoolReader::read_card_at` checks that the range lies within the card data and
   returns `DataSpoolError::Decompression` otherwise, instead of reading the header,
   the index, past the end of the file, or allocating an arbitrary length.
+- `PersistentVectorStore::add_document_with_spool` rejects a spool offset without a
+  length or a length without an offset (`rusqlite::Error::InvalidParameterName`);
+  SPECIFICATION.md §6.1 requires both or neither.
 
 ### Removed
 - `dataspool.md`, an out-of-date copy of the README.

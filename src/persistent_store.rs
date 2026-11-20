@@ -99,6 +99,11 @@ impl PersistentVectorStore {
     }
 
     /// Add a document with spool location
+    ///
+    /// `spool_offset` and `spool_length` are both `Some` (the document is a card
+    /// in the spool at `file_path`) or both `None` (`file_path` is a stand-alone
+    /// file), as SPECIFICATION.md §6.1 requires. Passing only one of them is an
+    /// error and nothing is written.
     #[allow(clippy::too_many_arguments)]
     pub fn add_document_with_spool(
         &self,
@@ -115,6 +120,13 @@ impl PersistentVectorStore {
                 "Expected {} dims, got {}",
                 self.dimension,
                 embedding.len()
+            )));
+        }
+
+        if spool_offset.is_some() != spool_length.is_some() {
+            return Err(rusqlite::Error::InvalidParameterName(format!(
+                "spool_offset ({:?}) and spool_length ({:?}) must both be set or both be None",
+                spool_offset, spool_length
             )));
         }
 
@@ -335,5 +347,27 @@ mod tests {
         let ids: Vec<&str> = results.iter().map(|r| r.doc_ref.id.as_str()).collect();
         assert_eq!(ids, ["near", "far", "nan"]);
         assert!(results[2].score.is_nan());
+    }
+
+    #[test]
+    fn test_spool_offset_and_length_are_both_or_neither() {
+        let store = PersistentVectorStore::new(":memory:", 2).unwrap();
+        let v = [1.0f32, 0.0];
+
+        for (offset, length) in [(Some(17), None), (None, Some(8))] {
+            assert!(matches!(
+                store.add_document_with_spool("half", "a.spool", "t", None, offset, length, &v),
+                Err(rusqlite::Error::InvalidParameterName(_))
+            ));
+        }
+        assert_eq!(store.count().unwrap(), 0);
+
+        store
+            .add_document_with_spool("both", "a.spool", "t", None, Some(17), Some(8), &v)
+            .unwrap();
+        store
+            .add_document_with_spool("neither", "a.bin", "t", None, None, None, &v)
+            .unwrap();
+        assert_eq!(store.count().unwrap(), 2);
     }
 }
