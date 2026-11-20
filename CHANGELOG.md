@@ -75,6 +75,12 @@ history. The crate version and the on-disk format are unchanged from 0.3.0.
 - `PersistentVectorStore::add_document` and `add_document_with_spool` write the
   document row and its embedding in one transaction, so a failure cannot leave a
   document without its embedding.
+- Spool offsets are stored in the database as non-negative INTEGERs:
+  `add_document_with_spool` rejects an offset above `i64::MAX`
+  (`rusqlite::Error::InvalidParameterName`) instead of storing it as a negative
+  number. Negative offsets already stored by 0.3.0 still read back as the `u64` that
+  was written. A stored `spool_length` outside the `u32` range is an error
+  (`rusqlite::Error::FromSqlConversionFailure`) instead of being truncated.
 
 ### Removed
 - `dataspool.md`, an out-of-date copy of the README.

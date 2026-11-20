@@ -133,6 +133,20 @@ impl PersistentVectorStore {
             )));
         }
 
+        // SQLite INTEGER is a signed 64-bit value; a byte offset is stored as a
+        // non-negative one, so it must not exceed i64::MAX.
+        let stored_offset = spool_offset
+            .map(|o| {
+                i64::try_from(o).map_err(|_| {
+                    rusqlite::Error::InvalidParameterName(format!(
+                        "spool_offset {} exceeds the largest storable offset {}",
+                        o,
+                        i64::MAX
+                    ))
+                })
+            })
+            .transpose()?;
+
         if spool_offset.is_some() != spool_length.is_some() {
             return Err(rusqlite::Error::InvalidParameterName(format!(
                 "spool_offset ({:?}) and spool_length ({:?}) must both be set or both be None",
@@ -152,8 +166,8 @@ impl PersistentVectorStore {
                 file_path,
                 source,
                 metadata,
-                spool_offset.map(|o| o as i64),
-                spool_length.map(|l| l as i64),
+                stored_offset,
+                spool_length.map(i64::from),
             ],
         )?;
 
@@ -252,8 +266,8 @@ impl PersistentVectorStore {
                     file_path,
                     source,
                     metadata,
-                    spool_offset: spool_offset.map(|o| o as u64),
-                    spool_length: spool_length.map(|l| l as u32),
+                    spool_offset: spool_offset.map(offset_from_sql),
+                    spool_length: spool_length.map(length_from_sql).transpose()?,
                 },
                 similarity,
             ))
@@ -291,6 +305,28 @@ impl PersistentVectorStore {
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM documents", [], |row| row.get(0))?;
         Ok(count as usize)
     }
+}
+
+/// Convert a stored `spool_offset` back to a byte offset.
+///
+/// This crate stores offsets as non-negative INTEGERs. Releases up to 0.3.0
+/// cast any `u64` to `i64`, so an offset above `i64::MAX` was stored as a
+/// negative number; reinterpreting the bits returns the value that was written,
+/// which keeps those databases reading as before.
+fn offset_from_sql(stored: i64) -> u64 {
+    stored as u64
+}
+
+/// Convert a stored `spool_length` back to a card length, which the spool
+/// format limits to `u32` (SPECIFICATION.md §2.1).
+fn length_from_sql(stored: i64) -> rusqlite::Result<u32> {
+    u32::try_from(stored).map_err(|_| {
+        rusqlite::Error::FromSqlConversionFailure(
+            5,
+            rusqlite::types::Type::Integer,
+            format!("spool_length {} is not a valid card length", stored).into(),
+        )
+    })
 }
 
 /// Total ordering for search scores: highest first, NaN scores last.
@@ -596,5 +632,64 @@ mod tests {
             .is_err());
         // The document insert was rolled back with it.
         assert_eq!(store.count().unwrap(), 0);
+    }
+
+    #[test]
+    fn test_spool_offsets_are_stored_as_non_negative_integers() {
+        let store = PersistentVectorStore::new(":memory:", 2).unwrap();
+        let v = [1.0f32, 0.0];
+
+        assert!(matches!(
+            store.add_document_with_spool("big", "a.spool", "t", None, Some(1 << 63), Some(1), &v),
+            Err(rusqlite::Error::InvalidParameterName(_))
+        ));
+        assert_eq!(store.count().unwrap(), 0);
+
+        let max = i64::MAX as u64;
+        store
+            .add_document_with_spool("max", "a.spool", "t", None, Some(max), Some(u32::MAX), &v)
+            .unwrap();
+        let stored: (i64, i64) = store
+            .conn
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT spool_offset, spool_length FROM documents WHERE id = 'max'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(stored, (i64::MAX, i64::from(u32::MAX)));
+
+        let hit = &store.search(&v, 1).unwrap()[0];
+        assert_eq!(hit.doc_ref.spool_offset, Some(max));
+        assert_eq!(hit.doc_ref.spool_length, Some(u32::MAX));
+    }
+
+    #[test]
+    fn test_stored_spool_values_from_older_writers() {
+        let store = PersistentVectorStore::new(":memory:", 2).unwrap();
+        let v = [1.0f32, 0.0];
+        store
+            .add_document_with_spool("doc", "a.spool", "t", None, Some(17), Some(8), &v)
+            .unwrap();
+        let set = |sql: &str| {
+            store.conn.lock().unwrap().execute(sql, []).unwrap();
+        };
+
+        // 0.3.0 stored an offset above i64::MAX as its bit pattern.
+        set("UPDATE documents SET spool_offset = -1 WHERE id = 'doc'");
+        let hit = &store.search(&v, 1).unwrap()[0];
+        assert_eq!(hit.doc_ref.spool_offset, Some(u64::MAX));
+
+        // A length outside u32 was never written by this crate and is an error,
+        // not silently truncated.
+        set("UPDATE documents SET spool_offset = 17, spool_length = 4294967296 WHERE id = 'doc'");
+        assert!(matches!(
+            store.search(&v, 1),
+            Err(rusqlite::Error::FromSqlConversionFailure(5, _, _))
+        ));
+        set("UPDATE documents SET spool_length = -1 WHERE id = 'doc'");
+        assert!(store.search(&v, 1).is_err());
     }
 }
