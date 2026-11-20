@@ -43,6 +43,10 @@ history. The crate version and the on-disk format are unchanged from 0.3.0.
   (was `DataSpoolError::Decompression`), the same as a wrong version. The rustdoc of
   the `error` module now has a table of which situation returns which error.
 
+### Added (API)
+- `SpoolReader::spool_len()`: the spool's total length (`index_offset + 12 *
+  card_count`), so a host file can find where an embedded spool ends.
+
 ### Changed (behavior)
 - A `SpoolReader` opened with `open_embedded` keeps the index's spool-relative
   offsets, as SPECIFICATION.md §2.1 and §5 define them: `entries()`, `get_entry()`

@@ -325,6 +325,18 @@ impl SpoolReader {
         &self.entries
     }
 
+    /// Total length of the spool in bytes: the header, the card data and the
+    /// index, which is the last part of a spool (SPECIFICATION.md §2). This is
+    /// `index_offset + 12 * card_count`.
+    ///
+    /// For an embedded spool the spool ends at `base_offset() + spool_len()` in
+    /// the host file; anything after that belongs to the host. The reader never
+    /// reads past that point.
+    pub fn spool_len(&self) -> u64 {
+        // Checked on open: the index fits within the file.
+        self.index_offset + self.entries.len() as u64 * INDEX_ENTRY_LEN
+    }
+
     /// Position of the spool's first byte in the file it was opened from: the
     /// `base_offset` given to [`open_embedded`](Self::open_embedded), or 0 for
     /// [`open`](Self::open).
@@ -773,5 +785,40 @@ mod tests {
             );
         }
         fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn test_spool_len_marks_the_end_of_an_embedded_spool() {
+        let spool_path = scratch_path("end_src");
+        {
+            let mut builder = SpoolBuilder::new(&spool_path).unwrap();
+            builder.add_card(b"card one").unwrap();
+            builder.add_card(b"card two").unwrap();
+            builder.finalize().unwrap();
+        }
+        let spool = fs::read(&spool_path).unwrap();
+
+        let reader = SpoolReader::open(&spool_path).unwrap();
+        assert_eq!(reader.spool_len(), spool.len() as u64);
+
+        // Host: [64 bytes][spool][trailer]. The spool ends where the trailer starts.
+        let mut host = vec![0xAA; 64];
+        host.extend_from_slice(&spool);
+        host.extend_from_slice(b"TRAILER");
+        let host_path = scratch_path("end_host");
+        fs::write(&host_path, &host).unwrap();
+
+        let reader = SpoolReader::open_embedded(&host_path, 64).unwrap();
+        let end = (reader.base_offset() + reader.spool_len()) as usize;
+        assert_eq!(&host[end..], b"TRAILER");
+
+        // An empty spool is just the header and an empty index.
+        let empty_path = scratch_path("end_empty");
+        SpoolBuilder::new(&empty_path).unwrap().finalize().unwrap();
+        assert_eq!(SpoolReader::open(&empty_path).unwrap().spool_len(), 17);
+
+        fs::remove_file(&spool_path).unwrap();
+        fs::remove_file(&host_path).unwrap();
+        fs::remove_file(&empty_path).unwrap();
     }
 }
