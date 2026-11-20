@@ -167,6 +167,18 @@ impl PersistentVectorStore {
 
     /// Search for similar documents using vector similarity
     /// Returns file references, caller must read and decompress files
+    ///
+    /// Ranking (SPECIFICATION.md §6.3): every stored vector is compared with
+    /// the query by cosine similarity, and the top `top_k` documents are
+    /// returned, highest similarity first. Precisely:
+    ///
+    /// - similarity is `dot(q, v) / (|q| * |v|)`, accumulated in `f64` and
+    ///   returned as `f32`; it is 0 when either vector has zero magnitude;
+    /// - a NaN similarity (from NaN or infinite components) ranks after every
+    ///   number;
+    /// - documents with equal similarity are ordered by `id`, ascending byte
+    ///   order, so the result does not depend on storage order;
+    /// - documents without a stored vector are not ranked.
     pub fn search(
         &self,
         query_embedding: &[f32],
@@ -246,8 +258,9 @@ impl PersistentVectorStore {
             results.push((doc_ref, score));
         }
 
-        // Sort by similarity (descending), NaN scores last
-        results.sort_by(|a, b| score_order(a.1, b.1));
+        // Sort by similarity (descending), NaN scores last, equal scores by
+        // document id so the ranking does not depend on SQLite row order.
+        results.sort_by(|a, b| score_order(a.1, b.1).then_with(|| a.0.id.cmp(&b.0.id)));
 
         // Take top_k
         Ok(results
@@ -286,15 +299,24 @@ fn score_order(a: f32, b: f32) -> std::cmp::Ordering {
 }
 
 /// Calculate cosine similarity between two vectors
+///
+/// Accumulates in `f64` so that the score, and therefore the ranking, depends
+/// as little as possible on summation order and `f32` rounding.
 fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-    let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-    let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
-    let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let mut dot = 0.0f64;
+    let mut norm_a = 0.0f64;
+    let mut norm_b = 0.0f64;
+    for (&x, &y) in a.iter().zip(b) {
+        let (x, y) = (f64::from(x), f64::from(y));
+        dot += x * y;
+        norm_a += x * x;
+        norm_b += y * y;
+    }
 
     if norm_a == 0.0 || norm_b == 0.0 {
         0.0
     } else {
-        dot / (norm_a * norm_b)
+        (dot / (norm_a.sqrt() * norm_b.sqrt())) as f32
     }
 }
 
@@ -502,5 +524,53 @@ mod tests {
         // Once the odd vector is gone, search works again.
         assert!(store.delete_document("wide").unwrap());
         assert_eq!(store.search(&[1.0, 0.0], 5).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_equal_scores_rank_by_id() {
+        let store = PersistentVectorStore::new(":memory:", 2).unwrap();
+        // Same direction, different magnitudes: all have similarity 1.
+        for (id, v) in [("c", [3.0, 0.0]), ("a", [1.0, 0.0]), ("b", [2.0, 0.0])] {
+            store.add_document(id, "f.bin", "t", None, &v).unwrap();
+        }
+        store
+            .add_document("orthogonal", "f.bin", "t", None, &[0.0, 1.0])
+            .unwrap();
+
+        let hits = store.search(&[1.0, 0.0], 4).unwrap();
+        let ids: Vec<&str> = hits.iter().map(|h| h.doc_ref.id.as_str()).collect();
+        assert_eq!(ids, ["a", "b", "c", "orthogonal"]);
+        assert!(hits[..3].iter().all(|h| h.score == 1.0));
+        assert_eq!(hits[3].score, 0.0);
+
+        let top2: Vec<String> = store
+            .search(&[1.0, 0.0], 2)
+            .unwrap()
+            .into_iter()
+            .map(|h| h.doc_ref.id)
+            .collect();
+        assert_eq!(top2, ["a", "b"]);
+        assert!(store.search(&[1.0, 0.0], 0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_zero_magnitude_has_similarity_zero() {
+        let store = PersistentVectorStore::new(":memory:", 2).unwrap();
+        store
+            .add_document("zero", "z.bin", "t", None, &[0.0, 0.0])
+            .unwrap();
+        store
+            .add_document("opposite", "o.bin", "t", None, &[-1.0, 0.0])
+            .unwrap();
+
+        let hits = store.search(&[1.0, 0.0], 2).unwrap();
+        assert_eq!(hits[0].doc_ref.id, "zero");
+        assert_eq!(hits[0].score, 0.0);
+        assert_eq!(hits[1].score, -1.0);
+
+        // A zero query scores every document 0, so the order is by id.
+        let hits = store.search(&[0.0, 0.0], 2).unwrap();
+        let ids: Vec<&str> = hits.iter().map(|h| h.doc_ref.id.as_str()).collect();
+        assert_eq!(ids, ["opposite", "zero"]);
     }
 }

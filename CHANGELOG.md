@@ -69,6 +69,9 @@ history. The crate version and the on-disk format are unchanged from 0.3.0.
   (`rusqlite::Error::FromSqlConversionFailure`) when a stored vector's length does not
   match the store's dimension, instead of silently comparing vectors of different
   lengths. SPECIFICATION.md §6.2: every vector in one database shares one dimension.
+- `PersistentVectorStore::search` ranks deterministically: cosine similarity is
+  accumulated in `f64`, and documents with equal scores are ordered by id instead of
+  by SQLite row order. The exact ranking rule is in the rustdoc of `search`.
 
 ### Removed
 - `dataspool.md`, an out-of-date copy of the README.
