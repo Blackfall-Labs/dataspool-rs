@@ -158,66 +158,20 @@ pub struct SpoolReader {
     entries: Vec<SpoolEntry>,
 }
 
+/// Map an unexpected end of file to [`DataSpoolError::InvalidFormat`]: a spool
+/// whose header or index is cut short is a malformed spool, not an I/O failure.
+fn truncated_is_invalid(err: std::io::Error) -> DataSpoolError {
+    if err.kind() == std::io::ErrorKind::UnexpectedEof {
+        DataSpoolError::InvalidFormat
+    } else {
+        DataSpoolError::Io(err)
+    }
+}
+
 impl SpoolReader {
     /// Open a spool file
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let mut file = File::open(path)?;
-
-        // Read and verify header
-        let mut magic = [0u8; 4];
-        file.read_exact(&mut magic)?;
-        if &magic != MAGIC {
-            return Err(DataSpoolError::Decompression(
-                "Invalid spool magic bytes".into(),
-            ));
-        }
-
-        let mut version = [0u8; 1];
-        file.read_exact(&mut version)?;
-        if version[0] != VERSION {
-            return Err(DataSpoolError::InvalidFormat);
-        }
-
-        let mut card_count_bytes = [0u8; 4];
-        file.read_exact(&mut card_count_bytes)?;
-        let card_count = u32::from_le_bytes(card_count_bytes);
-
-        let mut index_offset_bytes = [0u8; 8];
-        file.read_exact(&mut index_offset_bytes)?;
-        let index_offset = u64::from_le_bytes(index_offset_bytes);
-
-        // An unfinished spool still holds the placeholder offset 0; the index
-        // can never start inside the header.
-        if index_offset < HEADER_LEN {
-            return Err(DataSpoolError::InvalidFormat);
-        }
-
-        // The index must lie within the file before anything is allocated for it.
-        if !index_fits(index_offset, card_count, file.metadata()?.len()) {
-            return Err(DataSpoolError::InvalidFormat);
-        }
-
-        // Read index
-        file.seek(SeekFrom::Start(index_offset))?;
-        let mut entries = Vec::with_capacity(card_count as usize);
-
-        for _ in 0..card_count {
-            let mut offset_bytes = [0u8; 8];
-            file.read_exact(&mut offset_bytes)?;
-            let offset = u64::from_le_bytes(offset_bytes);
-
-            let mut length_bytes = [0u8; 4];
-            file.read_exact(&mut length_bytes)?;
-            let length = u32::from_le_bytes(length_bytes);
-
-            if !entry_fits(offset, length, index_offset) {
-                return Err(DataSpoolError::InvalidFormat);
-            }
-
-            entries.push(SpoolEntry { offset, length });
-        }
-
-        Ok(Self { file, entries })
+        Self::open_at(File::open(path)?, 0)
     }
 
     /// Open a spool embedded within a larger file at a given byte offset.
@@ -227,33 +181,33 @@ impl SpoolReader {
     /// within the host file. This enables direct access to spool data
     /// stitched into an Engram archive without temp extraction.
     pub fn open_embedded<P: AsRef<Path>>(path: P, base_offset: u64) -> Result<Self> {
-        let mut file = File::open(path)?;
+        Self::open_at(File::open(path)?, base_offset)
+    }
 
-        // Seek to spool start within the host file.
-        file.seek(SeekFrom::Start(base_offset))?;
+    /// Read the header and index of the spool that starts at `base` in `file`.
+    fn open_at(mut file: File, base: u64) -> Result<Self> {
+        // Everything from `base` to the end of the file is available to the
+        // spool. A region shorter than the header is a truncated spool.
+        let region_len = file.metadata()?.len().saturating_sub(base);
+        if region_len < HEADER_LEN {
+            return Err(DataSpoolError::InvalidFormat);
+        }
 
-        // Read and verify header.
-        let mut magic = [0u8; 4];
-        file.read_exact(&mut magic)?;
-        if &magic != MAGIC {
+        file.seek(SeekFrom::Start(base))?;
+        let mut header = [0u8; HEADER_LEN as usize];
+        file.read_exact(&mut header).map_err(truncated_is_invalid)?;
+
+        // Read and verify header
+        if &header[0..4] != MAGIC {
             return Err(DataSpoolError::Decompression(
                 "Invalid spool magic bytes".into(),
             ));
         }
-
-        let mut version = [0u8; 1];
-        file.read_exact(&mut version)?;
-        if version[0] != VERSION {
+        if header[4] != VERSION {
             return Err(DataSpoolError::InvalidFormat);
         }
-
-        let mut card_count_bytes = [0u8; 4];
-        file.read_exact(&mut card_count_bytes)?;
-        let card_count = u32::from_le_bytes(card_count_bytes);
-
-        let mut index_offset_bytes = [0u8; 8];
-        file.read_exact(&mut index_offset_bytes)?;
-        let index_offset = u64::from_le_bytes(index_offset_bytes);
+        let card_count = u32::from_le_bytes(header[5..9].try_into().unwrap());
+        let index_offset = u64::from_le_bytes(header[9..17].try_into().unwrap());
 
         // An unfinished spool still holds the placeholder offset 0; the index
         // can never start inside the header.
@@ -261,35 +215,33 @@ impl SpoolReader {
             return Err(DataSpoolError::InvalidFormat);
         }
 
-        // The index must lie within the embedded region (base_offset to end of
-        // file) before anything is allocated for it.
-        let region_len = file.metadata()?.len().saturating_sub(base_offset);
+        // The index must lie within the spool region before anything is
+        // allocated for it.
         if !index_fits(index_offset, card_count, region_len) {
             return Err(DataSpoolError::InvalidFormat);
         }
 
         // index_offset is relative to spool start — adjust to host file position.
-        let index_start = base_offset
+        let index_start = base
             .checked_add(index_offset)
             .ok_or(DataSpoolError::InvalidFormat)?;
         file.seek(SeekFrom::Start(index_start))?;
+        let index_len = usize::try_from(u64::from(card_count) * INDEX_ENTRY_LEN)
+            .map_err(|_| DataSpoolError::InvalidFormat)?;
+        let mut index = vec![0u8; index_len];
+        file.read_exact(&mut index).map_err(truncated_is_invalid)?;
+
         let mut entries = Vec::with_capacity(card_count as usize);
-
-        for _ in 0..card_count {
-            let mut offset_bytes = [0u8; 8];
-            file.read_exact(&mut offset_bytes)?;
-            let offset = u64::from_le_bytes(offset_bytes);
-
-            let mut length_bytes = [0u8; 4];
-            file.read_exact(&mut length_bytes)?;
-            let length = u32::from_le_bytes(length_bytes);
+        for raw in index.chunks_exact(INDEX_ENTRY_LEN as usize) {
+            let offset = u64::from_le_bytes(raw[0..8].try_into().unwrap());
+            let length = u32::from_le_bytes(raw[8..12].try_into().unwrap());
 
             if !entry_fits(offset, length, index_offset) {
                 return Err(DataSpoolError::InvalidFormat);
             }
 
             // Adjust card offset to host file position.
-            let offset = base_offset
+            let offset = base
                 .checked_add(offset)
                 .ok_or(DataSpoolError::InvalidFormat)?;
             entries.push(SpoolEntry { offset, length });
@@ -626,5 +578,56 @@ mod tests {
             checked_card_count(max + 1),
             Err(DataSpoolError::Io(_))
         ));
+    }
+
+    #[test]
+    fn test_truncated_spools_are_invalid_format() {
+        let path = scratch_path("truncate_src");
+        {
+            let mut builder = SpoolBuilder::new(&path).unwrap();
+            builder.add_card(b"one card").unwrap();
+            builder.finalize().unwrap();
+        }
+        let bytes = fs::read(&path).unwrap();
+        fs::remove_file(&path).unwrap();
+
+        // Every proper prefix of a valid spool is a truncated spool: cut in the
+        // magic, the version, the header fields, the card data or the index.
+        for cut in 0..bytes.len() {
+            let path = scratch_path(&format!("truncate_{cut}"));
+            fs::write(&path, &bytes[..cut]).unwrap();
+            assert!(
+                matches!(SpoolReader::open(&path), Err(DataSpoolError::InvalidFormat)),
+                "open accepted a spool cut at {cut} bytes"
+            );
+            fs::remove_file(&path).unwrap();
+
+            let host_path = scratch_path(&format!("truncate_host_{cut}"));
+            let mut host = vec![0xAA; 64];
+            host.extend_from_slice(&bytes[..cut]);
+            fs::write(&host_path, &host).unwrap();
+            assert!(
+                matches!(
+                    SpoolReader::open_embedded(&host_path, 64),
+                    Err(DataSpoolError::InvalidFormat)
+                ),
+                "open_embedded accepted a spool cut at {cut} bytes"
+            );
+            fs::remove_file(&host_path).unwrap();
+        }
+
+        // A base offset at or past the end of the host file.
+        let host_path = scratch_path("truncate_base_past_end");
+        fs::write(&host_path, [0xAA; 64]).unwrap();
+        for base in [64, 65, u64::MAX] {
+            assert!(
+                matches!(
+                    SpoolReader::open_embedded(&host_path, base),
+                    Err(DataSpoolError::InvalidFormat)
+                ),
+                "open_embedded accepted base {base}"
+            );
+        }
+        fs::remove_file(&host_path).unwrap();
     }
 }

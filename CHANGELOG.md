@@ -36,6 +36,9 @@ history. The crate version and the on-disk format are unchanged from 0.3.0.
   `u32::MAX` bytes or a card count above `u32::MAX`; nothing is written for that card.
 - `PersistentVectorStore::search` no longer panics when a score is NaN; NaN scores
   are ranked last.
+- A spool whose header or index is cut short (including an embedded spool whose base
+  offset is at or past the end of the host file) is rejected as
+  `DataSpoolError::InvalidFormat` instead of `DataSpoolError::Io(UnexpectedEof)`.
 
 ### Removed
 - `dataspool.md`, an out-of-date copy of the README.
