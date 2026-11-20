@@ -106,6 +106,10 @@ impl PersistentVectorStore {
 
     /// Add a document with spool location
     ///
+    /// The `documents` row and the `embeddings` row are written in one
+    /// transaction: if either insert fails, neither is stored. Adding an `id`
+    /// that already exists replaces both rows.
+    ///
     /// `spool_offset` and `spool_length` are both `Some` (the document is a card
     /// in the spool at `file_path`) or both `None` (`file_path` is a stand-alone
     /// file), as SPECIFICATION.md §6.1 requires. Passing only one of them is an
@@ -136,10 +140,12 @@ impl PersistentVectorStore {
             )));
         }
 
-        let conn = self.conn.lock().unwrap();
+        let mut conn = self.conn.lock().unwrap();
+        // The document and its embedding are written together or not at all.
+        let tx = conn.transaction()?;
 
         // Store document file reference with optional spool location
-        conn.execute(
+        tx.execute(
             "INSERT OR REPLACE INTO documents (id, file_path, source, metadata, spool_offset, spool_length) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 id,
@@ -157,12 +163,12 @@ impl PersistentVectorStore {
             .flat_map(|f| f.to_le_bytes())
             .collect::<Vec<u8>>();
 
-        conn.execute(
+        tx.execute(
             "INSERT OR REPLACE INTO embeddings (doc_id, vector) VALUES (?1, ?2)",
             params![id, &vector_bytes],
         )?;
 
-        Ok(())
+        tx.commit()
     }
 
     /// Search for similar documents using vector similarity
@@ -572,5 +578,23 @@ mod tests {
         let hits = store.search(&[0.0, 0.0], 2).unwrap();
         let ids: Vec<&str> = hits.iter().map(|h| h.doc_ref.id.as_str()).collect();
         assert_eq!(ids, ["opposite", "zero"]);
+    }
+
+    #[test]
+    fn test_document_and_embedding_are_written_atomically() {
+        let store = PersistentVectorStore::new(":memory:", 2).unwrap();
+        // Make the second insert fail.
+        store
+            .conn
+            .lock()
+            .unwrap()
+            .execute("DROP TABLE embeddings", [])
+            .unwrap();
+
+        assert!(store
+            .add_document("doc", "d.bin", "t", None, &[1.0, 0.0])
+            .is_err());
+        // The document insert was rolled back with it.
+        assert_eq!(store.count().unwrap(), 0);
     }
 }

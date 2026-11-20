@@ -72,6 +72,9 @@ history. The crate version and the on-disk format are unchanged from 0.3.0.
 - `PersistentVectorStore::search` ranks deterministically: cosine similarity is
   accumulated in `f64`, and documents with equal scores are ordered by id instead of
   by SQLite row order. The exact ranking rule is in the rustdoc of `search`.
+- `PersistentVectorStore::add_document` and `add_document_with_spool` write the
+  document row and its embedding in one transaction, so a failure cannot leave a
+  document without its embedding.
 
 ### Removed
 - `dataspool.md`, an out-of-date copy of the README.
