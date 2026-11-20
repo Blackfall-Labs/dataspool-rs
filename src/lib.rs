@@ -1,14 +1,15 @@
 //! # DataSpool: Efficient Data Bundling System
 //!
 //! DataSpool eliminates filesystem overhead by concatenating multiple items
-//! (cards, images, etc.) into a single indexed file with SQLite-based metadata.
+//! ("cards") into a single indexed file with SQLite-based metadata.
 //!
 //! ## Features
 //!
 //! - **Spool Format**: Single file with byte-offset index
 //! - **Vector Database**: SQLite-based embeddings and metadata
 //! - **Random Access**: Direct byte offset seeks, no scanning
-//! - **Multiple Variants**: Cards, Images (future), Binary blobs
+//! - **Opaque Cards**: a card is any byte string up to `u32::MAX` bytes (a
+//!   compressed document, an image, a record); the spool never interprets it
 //!
 //! ## Format
 //!

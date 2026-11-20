@@ -1,4 +1,4 @@
-//! Data Spooling: Stitch BP Cards into Single File
+//! Data Spooling: Stitch Cards into a Single File
 //!
 //! Eliminates filesystem overhead by concatenating all cards into one file.
 //! Provides byte offset index for direct random access.
@@ -77,7 +77,7 @@ pub struct SpoolEntry {
     pub length: u32,
 }
 
-/// Builds a spool file from individual BP cards
+/// Builds a spool file from individual cards (opaque byte strings)
 pub struct SpoolBuilder {
     /// Output file
     output: File,
