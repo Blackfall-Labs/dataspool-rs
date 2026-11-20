@@ -1,0 +1,28 @@
+use std::fs;
+use std::path::Path;
+fn main() {
+    let out = std::env::args().nth(1).expect("out dir");
+    let out = Path::new(&out);
+    fs::create_dir_all(out).unwrap();
+    // basic spool
+    let mut b = dataspool_rs::SpoolBuilder::new(out.join("basic.spool")).unwrap();
+    b.add_card(b"first card").unwrap();
+    b.add_card(b"").unwrap();
+    b.add_card(b"third card, a little longer").unwrap();
+    b.finalize().unwrap();
+    // empty spool
+    dataspool_rs::SpoolBuilder::new(out.join("empty.spool")).unwrap().finalize().unwrap();
+    // embedded host: 64 bytes 0xAA, spool, 32 bytes 0xBB
+    let mut host = vec![0xAAu8; 64];
+    host.extend(fs::read(out.join("basic.spool")).unwrap());
+    host.extend(vec![0xBBu8; 32]);
+    fs::write(out.join("embedded.bin"), host).unwrap();
+    // index db, dimension 4
+    let db = out.join("index.db");
+    let _ = fs::remove_file(&db);
+    let s = dataspool_rs::PersistentVectorStore::new(&db, 4).unwrap();
+    s.add_document_with_spool("card-0", "basic.spool", "fixture", Some(r#"{"n":0}"#), Some(17), Some(10), &[1.0, 0.0, 0.0, 0.0]).unwrap();
+    s.add_document_with_spool("card-2", "basic.spool", "fixture", None, Some(27), Some(27), &[0.0, 1.0, 0.0, 0.0]).unwrap();
+    s.add_document("standalone", "docs/standalone.bin", "fixture", None, &[0.5, 0.5, 0.0, 0.0]).unwrap();
+    drop(s);
+}

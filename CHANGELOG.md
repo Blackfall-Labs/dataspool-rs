@@ -13,6 +13,8 @@ history. The crate version and the on-disk format are unchanged from 0.3.0.
 - `SPECIFICATION.md`, a complete description of the SP01 spool format and the index
   database, sufficient to build a compatible implementation.
 - `LICENSE-APACHE`: the crate is now dual licensed under MIT OR Apache-2.0.
+- Compatibility fixtures in `tests/fixtures/` written by the published 0.3.0 release
+  and by this branch before the specification work, with tests that read them.
 
 ### Changed
 - README rewritten so every example matches the real API.
