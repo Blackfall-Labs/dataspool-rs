@@ -90,6 +90,8 @@ history. The crate version and the on-disk format are unchanged from 0.3.0.
   cosine-similarity scan, which is what SPECIFICATION.md §6.3 ranks by.
 - The crate docs no longer list card "variants" (images, blobs). Cards are opaque
   byte strings, as SPECIFICATION.md §2.2 says; any content can be a card.
+- The rustdoc of the `persistent_store` module has a table of which situation returns
+  which error.
 
 ### Removed
 - `dataspool.md`, an out-of-date copy of the README.

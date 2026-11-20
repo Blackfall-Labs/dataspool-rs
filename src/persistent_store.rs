@@ -5,6 +5,22 @@
 //! compared with the query by cosine similarity. There is no approximate
 //! nearest-neighbour index such as HNSW; §6.3 allows another index structure
 //! only if it returns the same ranking as this exact scan.
+//!
+//! # Error table
+//!
+//! The store returns `rusqlite::Error`:
+//!
+//! | Situation                                                                 | Error |
+//! |---------------------------------------------------------------------------|-------|
+//! | Embedding or query length is not the store's dimension (§6.2)             | `InvalidParameterName` |
+//! | Spool offset given without a length, or a length without an offset (§6.1) | `InvalidParameterName` |
+//! | Spool offset above `i64::MAX`, which an INTEGER column cannot hold         | `InvalidParameterName` |
+//! | A stored vector is not `4 * dimension` bytes (§6.2), found by `search`     | `FromSqlConversionFailure` for column 6 |
+//! | A stored `spool_length` is outside the `u32` range (§2.1), found by `search` | `FromSqlConversionFailure` for column 5 |
+//! | Any SQLite failure (open, schema, insert, query)                          | the `rusqlite::Error` SQLite reported |
+//!
+//! Nothing is written when an input check fails. Spool reads are separate:
+//! their errors are in the [`error`](crate::error) module.
 
 use rusqlite::{params, Connection};
 use std::path::Path;
