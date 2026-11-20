@@ -17,6 +17,18 @@ const VERSION: u8 = 1;
 /// Size of the spool header: magic (4) + version (1) + card count (4) + index offset (8)
 const HEADER_LEN: u64 = 17;
 
+/// Size of one index entry: offset (8) + length (4)
+const INDEX_ENTRY_LEN: u64 = 12;
+
+/// Whether an index of `card_count` entries starting at `index_offset` lies
+/// within a spool of `spool_len` bytes.
+fn index_fits(index_offset: u64, card_count: u32, spool_len: u64) -> bool {
+    u64::from(card_count)
+        .checked_mul(INDEX_ENTRY_LEN)
+        .and_then(|index_len| index_offset.checked_add(index_len))
+        .is_some_and(|index_end| index_end <= spool_len)
+}
+
 /// Entry in the spool index
 #[derive(Debug, Clone)]
 pub struct SpoolEntry {
@@ -141,6 +153,11 @@ impl SpoolReader {
             return Err(DataSpoolError::InvalidFormat);
         }
 
+        // The index must lie within the file before anything is allocated for it.
+        if !index_fits(index_offset, card_count, file.metadata()?.len()) {
+            return Err(DataSpoolError::InvalidFormat);
+        }
+
         // Read index
         file.seek(SeekFrom::Start(index_offset))?;
         let mut entries = Vec::with_capacity(card_count as usize);
@@ -198,6 +215,13 @@ impl SpoolReader {
         // An unfinished spool still holds the placeholder offset 0; the index
         // can never start inside the header.
         if index_offset < HEADER_LEN {
+            return Err(DataSpoolError::InvalidFormat);
+        }
+
+        // The index must lie within the embedded region (base_offset to end of
+        // file) before anything is allocated for it.
+        let region_len = file.metadata()?.len().saturating_sub(base_offset);
+        if !index_fits(index_offset, card_count, region_len) {
             return Err(DataSpoolError::InvalidFormat);
         }
 
@@ -423,6 +447,37 @@ mod tests {
         let host_path = scratch_path("unfinished_host");
         let mut host = vec![0xAA; 64];
         host.extend_from_slice(&fs::read(&path).unwrap());
+        fs::write(&host_path, &host).unwrap();
+        assert!(matches!(
+            SpoolReader::open_embedded(&host_path, 64),
+            Err(DataSpoolError::InvalidFormat)
+        ));
+
+        fs::remove_file(&path).unwrap();
+        fs::remove_file(&host_path).unwrap();
+    }
+
+    #[test]
+    fn test_corrupt_card_count_is_rejected() {
+        let path = scratch_path("huge_count");
+        {
+            let mut builder = SpoolBuilder::new(&path).unwrap();
+            builder.add_card(b"one card").unwrap();
+            builder.finalize().unwrap();
+        }
+        // Overwrite card_count (bytes 5..9) with u32::MAX.
+        let mut bytes = fs::read(&path).unwrap();
+        bytes[5..9].copy_from_slice(&u32::MAX.to_le_bytes());
+        fs::write(&path, &bytes).unwrap();
+
+        assert!(matches!(
+            SpoolReader::open(&path),
+            Err(DataSpoolError::InvalidFormat)
+        ));
+
+        let host_path = scratch_path("huge_count_host");
+        let mut host = vec![0xAA; 64];
+        host.extend_from_slice(&bytes);
         fs::write(&host_path, &host).unwrap();
         assert!(matches!(
             SpoolReader::open_embedded(&host_path, 64),
